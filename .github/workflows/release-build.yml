@@ -1,0 +1,21 @@
+name: Release Build
+
+on:
+  # The `published` type covers both regular releases and pre-releases once
+  # they are actually published.
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-artifacts:
+    name: Build release artifacts
+    uses: ./.github/workflows/build.yml
+    with:
+      build_mode: release
+      upload_to_release: true
+      release_tag: ${{ github.event.release.tag_name }}
+    secrets: inherit

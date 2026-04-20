@@ -1,0 +1,293 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      build_mode:
+        description: Flutter build mode.
+        required: false
+        default: release
+        type: string
+      upload_to_release:
+        description: Upload generated artifacts to an existing GitHub release.
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Git tag of the GitHub release to upload to.
+        required: false
+        default: ""
+        type: string
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Flutter build mode.
+        required: false
+        default: release
+        type: choice
+        options:
+          - debug
+          - release
+      upload_to_release:
+        description: Upload generated artifacts to an existing GitHub release.
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Git tag of the GitHub release to upload to.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Android APK
+        run: flutter build apk --${{ inputs.build_mode }}
+
+      - name: Prepare Android artifact
+        run: |
+          mkdir -p dist
+          cp "build/app/outputs/flutter-apk/app-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-${{ inputs.build_mode }}.apk"
+
+      - name: Upload Android workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ inputs.build_mode }}
+          path: dist/trig-android-${{ inputs.build_mode }}.apk
+
+      - name: Upload Android asset to release
+        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            "dist/trig-android-${{ inputs.build_mode }}.apk" \
+            --clobber
+
+  build-linux:
+    name: Build Linux Bundle and Packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            libgtk-3-dev \
+            ninja-build \
+            patchelf \
+            rpm \
+            ruby \
+            ruby-dev
+          sudo gem install --no-document fpm
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Linux bundle
+        run: flutter build linux --${{ inputs.build_mode }}
+
+      - name: Prepare Linux artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist package-root/opt/trig_todo package-root/usr/bin
+          build_dir="release"
+          if [ "${{ inputs.build_mode }}" = "debug" ]; then
+            build_dir="debug"
+          fi
+
+          version_line=$(awk '/^version:/{print $2}' pubspec.yaml)
+          version_name="${version_line%%+*}"
+          build_number="${version_line#*+}"
+          if [ "$build_number" = "$version_line" ]; then
+            build_number="1"
+          fi
+
+          cp -R "build/linux/x64/${build_dir}/bundle/"* package-root/opt/trig_todo/
+
+          cat > package-root/usr/bin/trig_todo <<'EOF'
+          #!/usr/bin/env bash
+          exec /opt/trig_todo/trig_todo "$@"
+          EOF
+          chmod +x package-root/usr/bin/trig_todo
+
+          tar -C "build/linux/x64/${build_dir}" -czf \
+            dist/trig-linux-${{ inputs.build_mode }}.tar.gz \
+            bundle
+
+          fpm -s dir -t deb \
+            -n trig \
+            -v "$version_name" \
+            --iteration "$build_number" \
+            --architecture amd64 \
+            --description "Trig Todo App" \
+            -C package-root \
+            --package dist \
+            .
+
+          fpm -s dir -t rpm \
+            -n trig \
+            -v "$version_name" \
+            --iteration "$build_number" \
+            --architecture x86_64 \
+            --description "Trig Todo App" \
+            -C package-root \
+            --package dist \
+            .
+
+      - name: Upload Linux workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ inputs.build_mode }}
+          path: |
+            dist/trig-linux-${{ inputs.build_mode }}.tar.gz
+            dist/*.deb
+            dist/*.rpm
+
+      - name: Upload Linux assets to release
+        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${{ inputs.release_tag }}" \
+            "dist/trig-linux-${{ inputs.build_mode }}.tar.gz" \
+            dist/*.deb \
+            dist/*.rpm \
+            --clobber
+
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build macOS app bundle
+        run: flutter build macos --${{ inputs.build_mode }}
+
+      - name: Prepare macOS artifact
+        run: |
+          mkdir -p dist
+          build_dir="Debug"
+          if [ "${{ inputs.build_mode }}" = "release" ]; then
+            build_dir="Release"
+          fi
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/macos/Build/Products/${build_dir}/trig_todo.app" \
+            "dist/trig-macos-${{ inputs.build_mode }}.zip"
+
+      - name: Upload macOS workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ inputs.build_mode }}
+          path: dist/trig-macos-${{ inputs.build_mode }}.zip
+
+      - name: Upload macOS asset to release
+        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.release_tag }}" \
+            "dist/trig-macos-${{ inputs.build_mode }}.zip" \
+            --clobber
+
+  build-windows:
+    name: Build Windows App
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build Windows app
+        run: flutter build windows --${{ inputs.build_mode }}
+
+      - name: Prepare Windows artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $buildDir = if ("${{ inputs.build_mode }}" -eq "release") { "Release" } else { "Debug" }
+          Compress-Archive `
+            -Path "build/windows/x64/runner/$buildDir/*" `
+            -DestinationPath "dist/trig-windows-${{ inputs.build_mode }}.zip" `
+            -Force
+
+      - name: Upload Windows workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ inputs.build_mode }}
+          path: dist/trig-windows-${{ inputs.build_mode }}.zip
+
+      - name: Upload Windows asset to release
+        if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ inputs.release_tag }}" `
+            "dist/trig-windows-${{ inputs.build_mode }}.zip" `
+            --clobber

@@ -1,0 +1,123 @@
+name: Nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 00:05 Asia/Shanghai (UTC+8) every day.
+    - cron: "5 16 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+jobs:
+  check-commits:
+    name: Check daily commits
+    runs-on: ubuntu-latest
+    outputs:
+      has_new_commits: ${{ steps.check.outputs.has_new_commits }}
+      latest_title: ${{ steps.check.outputs.latest_title }}
+      target_sha: ${{ steps.check.outputs.target_sha }}
+      checked_date: ${{ steps.check.outputs.checked_date }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine whether the local day has new commits
+        id: check
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            check_date=$(TZ=Asia/Shanghai date '+%Y-%m-%d')
+          else
+            check_date=$(TZ=Asia/Shanghai date -d 'yesterday' '+%Y-%m-%d')
+          fi
+
+          since="${check_date}T00:00:00+08:00"
+          until="${check_date}T23:59:59+08:00"
+          count=$(git rev-list --count --since="$since" --until="$until" HEAD)
+
+          echo "checked_date=$check_date" >> "$GITHUB_OUTPUT"
+
+          if [ "$count" -eq 0 ]; then
+            echo "has_new_commits=false" >> "$GITHUB_OUTPUT"
+            echo "target_sha=" >> "$GITHUB_OUTPUT"
+            echo "latest_title=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest_sha=$(git log -1 --format=%H --since="$since" --until="$until" HEAD)
+          latest_title=$(git log -1 --format=%s --since="$since" --until="$until" HEAD)
+
+          {
+            echo "has_new_commits=true"
+            echo "target_sha=$latest_sha"
+            echo "latest_title<<EOF"
+            echo "$latest_title"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: No commits for the checked day
+        if: ${{ steps.check.outputs.has_new_commits == 'false' }}
+        run: echo "No commits found for ${{ steps.check.outputs.checked_date }} (Asia/Shanghai)."
+
+  prepare-nightly-release:
+    name: Prepare nightly release
+    runs-on: ubuntu-latest
+    needs: check-commits
+    if: ${{ needs.check-commits.outputs.has_new_commits == 'true' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move nightly tag to latest commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly "${{ needs.check-commits.outputs.target_sha }}"
+          git push origin refs/tags/nightly --force
+
+      - name: Create or update nightly release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST_TITLE: ${{ needs.check-commits.outputs.latest_title }}
+          TARGET_SHA: ${{ needs.check-commits.outputs.target_sha }}
+        run: |
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly \
+              --title "nightly" \
+              --notes "$LATEST_TITLE" \
+              --prerelease
+          else
+            gh release create nightly \
+              --target "$TARGET_SHA" \
+              --title "nightly" \
+              --notes "$LATEST_TITLE" \
+              --prerelease
+          fi
+
+  build-nightly-artifacts:
+    name: Build nightly artifacts
+    needs:
+      - check-commits
+      - prepare-nightly-release
+    if: ${{ needs.check-commits.outputs.has_new_commits == 'true' }}
+    uses: ./.github/workflows/build.yml
+    with:
+      build_mode: release
+      upload_to_release: true
+      release_tag: nightly
+    secrets: inherit
