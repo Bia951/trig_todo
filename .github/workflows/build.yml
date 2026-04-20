@@ -67,20 +67,33 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Build Android APK
+      - name: Build universal Android APK
         run: flutter build apk --${{ inputs.build_mode }}
+
+      - name: Build ABI split Android APKs
+        run: flutter build apk --${{ inputs.build_mode }} --split-per-abi
 
       - name: Prepare Android artifact
         run: |
           mkdir -p dist
           cp "build/app/outputs/flutter-apk/app-${{ inputs.build_mode }}.apk" \
-            "dist/trig-android-${{ inputs.build_mode }}.apk"
+            "dist/trig-android-universal-${{ inputs.build_mode }}.apk"
+          cp "build/app/outputs/flutter-apk/app-x86_64-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-x86_64-${{ inputs.build_mode }}.apk"
+          cp "build/app/outputs/flutter-apk/app-arm64-v8a-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-aarch64-${{ inputs.build_mode }}.apk"
+          cp "build/app/outputs/flutter-apk/app-armeabi-v7a-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-armv7-${{ inputs.build_mode }}.apk"
 
       - name: Upload Android workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-${{ inputs.build_mode }}
-          path: dist/trig-android-${{ inputs.build_mode }}.apk
+          path: |
+            dist/trig-android-universal-${{ inputs.build_mode }}.apk
+            dist/trig-android-x86_64-${{ inputs.build_mode }}.apk
+            dist/trig-android-aarch64-${{ inputs.build_mode }}.apk
+            dist/trig-android-armv7-${{ inputs.build_mode }}.apk
 
       - name: Upload Android asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -88,7 +101,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-android-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-universal-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-x86_64-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-aarch64-${{ inputs.build_mode }}.apk" \
+            "dist/trig-android-armv7-${{ inputs.build_mode }}.apk" \
             --clobber
 
   build-linux:
@@ -153,7 +169,7 @@ jobs:
           chmod +x package-root/usr/bin/trig_todo
 
           tar -C "build/linux/x64/${build_dir}" -czf \
-            dist/trig-linux-${{ inputs.build_mode }}.tar.gz \
+            dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz \
             bundle
 
           fpm -s dir -t deb \
@@ -161,9 +177,9 @@ jobs:
             -v "$version_name" \
             --iteration "$build_number" \
             --architecture amd64 \
+            --package "dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb" \
             --description "Trig Todo App" \
             -C package-root \
-            --package dist \
             .
 
           fpm -s dir -t rpm \
@@ -171,9 +187,9 @@ jobs:
             -v "$version_name" \
             --iteration "$build_number" \
             --architecture x86_64 \
+            --package "dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm" \
             --description "Trig Todo App" \
             -C package-root \
-            --package dist \
             .
 
       - name: Upload Linux workflow artifacts
@@ -181,9 +197,9 @@ jobs:
         with:
           name: linux-${{ inputs.build_mode }}
           path: |
-            dist/trig-linux-${{ inputs.build_mode }}.tar.gz
-            dist/*.deb
-            dist/*.rpm
+            dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz
+            dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb
+            dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm
 
       - name: Upload Linux assets to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -193,9 +209,9 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-linux-${{ inputs.build_mode }}.tar.gz" \
-            dist/*.deb \
-            dist/*.rpm \
+            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz" \
+            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb" \
+            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm" \
             --clobber
 
   build-macos:
@@ -216,8 +232,12 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Build macOS app bundle
-        run: flutter build macos --${{ inputs.build_mode }}
+      - name: Install macOS packaging tools
+        run: |
+          brew install create-dmg imagemagick
+
+      - name: Build macOS universal app bundle
+        run: flutter build macos --${{ inputs.build_mode }} --target-platform darwin-x64,darwin-arm64
 
       - name: Prepare macOS artifact
         run: |
@@ -226,15 +246,22 @@ jobs:
           if [ "${{ inputs.build_mode }}" = "release" ]; then
             build_dir="Release"
           fi
-          ditto -c -k --sequesterRsrc --keepParent \
-            "build/macos/Build/Products/${build_dir}/trig_todo.app" \
-            "dist/trig-macos-${{ inputs.build_mode }}.zip"
+          magick -size 800x480 canvas:none dist/dmg-background.png
+          create-dmg \
+            --volname "Trig" \
+            --window-size 800 480 \
+            --icon-size 128 \
+            --icon "trig_todo.app" 220 240 \
+            --app-drop-link 580 240 \
+            --background dist/dmg-background.png \
+            "dist/trig-macos-universal-${{ inputs.build_mode }}.dmg" \
+            "build/macos/Build/Products/${build_dir}/"
 
       - name: Upload macOS workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ inputs.build_mode }}
-          path: dist/trig-macos-${{ inputs.build_mode }}.zip
+          path: dist/trig-macos-universal-${{ inputs.build_mode }}.dmg
 
       - name: Upload macOS asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -242,7 +269,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-macos-${{ inputs.build_mode }}.zip" \
+            "dist/trig-macos-universal-${{ inputs.build_mode }}.dmg" \
             --clobber
 
   build-windows:
@@ -266,21 +293,89 @@ jobs:
       - name: Build Windows app
         run: flutter build windows --${{ inputs.build_mode }}
 
-      - name: Prepare Windows artifact
+      - name: Install Windows packaging tools
         shell: pwsh
         run: |
+          choco install innosetup wixtoolset --yes
+
+      - name: Prepare Windows installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
+          New-Item -ItemType Directory -Path installer-temp -Force | Out-Null
+
           $buildDir = if ("${{ inputs.build_mode }}" -eq "release") { "Release" } else { "Debug" }
-          Compress-Archive `
-            -Path "build/windows/x64/runner/$buildDir/*" `
-            -DestinationPath "dist/trig-windows-${{ inputs.build_mode }}.zip" `
-            -Force
+          $appDir = "build/windows/x64/runner/$buildDir"
+          $versionLine = (Get-Content pubspec.yaml | Select-String '^version:' | ForEach-Object { $_.ToString().Split(':')[1].Trim() })
+          $versionName = $versionLine.Split('+')[0]
+
+          @"
+          [Setup]
+          AppName=Trig
+          AppVersion=$versionName
+          DefaultDirName={autopf}\Trig
+          DefaultGroupName=Trig
+          OutputDir=dist
+          OutputBaseFilename=trig-windows-x86_64-${{ inputs.build_mode }}
+          Compression=lzma
+          SolidCompression=yes
+
+          [Files]
+          Source: "$appDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Trig"; Filename: "{app}\trig_todo.exe"
+          Name: "{autodesktop}\Trig"; Filename: "{app}\trig_todo.exe"
+          "@ | Set-Content installer-temp/trig.iss
+
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer-temp/trig.iss
+
+          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\heat.exe" dir "$appDir" `
+            -cg AppFiles `
+            -dr INSTALLDIR `
+            -scom `
+            -sreg `
+            -srd `
+            -gg `
+            -var var.SourceDir `
+            -out installer-temp/AppFiles.wxs
+
+          @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="Trig" Language="1033" Version="$versionName" Manufacturer="Trig" UpgradeCode="1A0A7A3F-A8DE-4F6F-81F5-E0FDFB929D84">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+              <MajorUpgrade DowngradeErrorMessage="A newer version of Trig is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLDIR" Name="Trig" />
+                </Directory>
+              </Directory>
+              <Feature Id="ProductFeature" Title="Trig" Level="1">
+                <ComponentGroupRef Id="AppFiles" />
+              </Feature>
+            </Product>
+          </Wix>
+          "@ | Set-Content installer-temp/trig.wxs
+
+          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\candle.exe" `
+            -dSourceDir="$appDir" `
+            installer-temp/AppFiles.wxs `
+            installer-temp/trig.wxs
+          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\light.exe" `
+            -o "dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi" `
+            AppFiles.wixobj `
+            trig.wixobj
 
       - name: Upload Windows workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ inputs.build_mode }}
-          path: dist/trig-windows-${{ inputs.build_mode }}.zip
+          path: |
+            dist/trig-windows-x86_64-${{ inputs.build_mode }}.exe
+            dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi
 
       - name: Upload Windows asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -289,5 +384,6 @@ jobs:
         shell: pwsh
         run: |
           gh release upload "${{ inputs.release_tag }}" `
-            "dist/trig-windows-${{ inputs.build_mode }}.zip" `
+            "dist/trig-windows-x86_64-${{ inputs.build_mode }}.exe" `
+            "dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi" `
             --clobber
