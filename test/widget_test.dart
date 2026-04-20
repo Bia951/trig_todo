@@ -53,5 +53,13 @@ void main() {
 
     expect(find.text('Design review'), findsNothing);
     expect(find.text('Buy groceries'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'nothing matches');
+    await tester.pumpAndSettle();
+
+    expect(find.text('No todos match this search.'), findsOneWidget);
+    expect(find.text('Important'), findsNothing);
+    expect(find.text('Pending'), findsNothing);
+    expect(find.text('Completed'), findsNothing);
   });
 }

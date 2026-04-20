@@ -1,0 +1,69 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 108 108"
+  fill="none"
+>
+  <defs>
+    <style>
+      :root {
+        --icon-bg: #fff4e8;
+        --icon-check: #e8a762;
+        --icon-triangle: #c86420;
+        --icon-highlight: #ffe3bf;
+        --icon-check-highlight: #f6c892;
+      }
+    </style>
+  </defs>
+
+  <circle cx="54" cy="54" r="54" fill="var(--icon-bg)" />
+
+  <g transform="translate(16.2 16.2) scale(0.7)">
+    <path
+      d="M21 56.5L42.5 78"
+      stroke="var(--icon-check)"
+      stroke-width="15"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <path
+      d="M23.5 53L35.5 65"
+      stroke="var(--icon-check-highlight)"
+      stroke-width="4"
+      stroke-linecap="round"
+    />
+
+    <path
+      d="M42.5 78L68.52 50.36"
+      stroke="var(--icon-check)"
+      stroke-width="15"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <path
+      d="M44 40H90L67 78Z"
+      stroke="var(--icon-triangle)"
+      stroke-width="11"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      transform="rotate(5, 67, 78)"
+    />
+
+    <path
+      d="M61.5 68.5L48.5 46.5"
+      stroke="var(--icon-highlight)"
+      stroke-width="4"
+      stroke-linecap="round"
+      transform="rotate(5, 67, 78)"
+    />
+
+    <path
+      d="M68.52 50.36L87 30"
+      stroke="var(--icon-check)"
+      stroke-width="15"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

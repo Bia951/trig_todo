@@ -57,8 +57,7 @@ class TodoProvider extends ChangeNotifier {
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     return List<Todo>.unmodifiable(
       _todos.where((todo) {
-        final searchableText = '${todo.title} ${todo.content} ${todo.notes}'
-            .toLowerCase();
+        final searchableText = _buildSearchableText(todo);
         return searchableText.contains(normalizedQuery);
       }),
     );
@@ -269,6 +268,26 @@ class TodoProvider extends ChangeNotifier {
     } on Object catch (error, stackTrace) {
       debugPrint('Failed to persist todo ${todo.id}: $error\n$stackTrace');
     }
+  }
+
+  String _buildSearchableText(Todo todo) {
+    return [
+      todo.title,
+      todo.content,
+      todo.notes,
+      _formatSearchDateTime(todo.reminderTime),
+      _formatSearchDateTime(todo.deadline),
+      todo.reminderTime.toIso8601String(),
+      todo.deadline.toIso8601String(),
+    ].join(' ').toLowerCase();
+  }
+
+  String _formatSearchDateTime(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '${value.year}-$month-$day $hour:$minute';
   }
 
   void _sortTodos() {

@@ -162,6 +162,23 @@ class _HomeScreenState extends State<HomeScreen> {
     final pendingTodos = todoProvider.pendingTodos;
     final completedTodos = todoProvider.completedTodos;
     final hasSearchQuery = todoProvider.searchQuery.trim().isNotEmpty;
+    final hasAnyVisibleTodos =
+        importantTodos.isNotEmpty ||
+        pendingTodos.isNotEmpty ||
+        completedTodos.isNotEmpty;
+    final showAllSectionsInSearch = hasSearchQuery && hasAnyVisibleTodos;
+    final effectiveImportantExpanded =
+        showAllSectionsInSearch && importantTodos.isEmpty
+        ? false
+        : _importantExpanded;
+    final effectivePendingExpanded =
+        showAllSectionsInSearch && pendingTodos.isEmpty
+        ? false
+        : _pendingExpanded;
+    final effectiveCompletedExpanded =
+        showAllSectionsInSearch && completedTodos.isEmpty
+        ? false
+        : _completedExpanded;
 
     return Scaffold(
       appBar: AppBar(
@@ -227,87 +244,123 @@ class _HomeScreenState extends State<HomeScreen> {
         child: GestureDetector(
           behavior: HitTestBehavior.translucent,
           onTap: _dismissKeyboard,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            children: [
-              if (importantTodos.isNotEmpty) ...[
-                TodoSectionPanel(
-                  title: 'Important',
-                  todos: importantTodos,
-                  isExpanded: _importantExpanded,
-                  onToggleExpanded: () {
-                    setState(() {
-                      _importantExpanded = !_importantExpanded;
-                    });
-                  },
-                  manageMode: _manageMode,
-                  onReorder: _manageMode
-                      ? (oldIndex, newIndex) {
-                          todoProvider.reorderTodos(
-                            bucket: TodoBucket.important,
-                            oldIndex: oldIndex,
-                            newIndex: newIndex,
-                          );
-                        }
-                      : null,
-                  emptyLabel: hasSearchQuery
-                      ? 'No important todos match this search.'
-                      : 'No important todos yet.',
-                  tileBuilder: _buildSectionTile,
+          child: hasSearchQuery && !hasAnyVisibleTodos
+              ? const _SearchEmptyState()
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  children: [
+                    if (showAllSectionsInSearch ||
+                        importantTodos.isNotEmpty) ...[
+                      TodoSectionPanel(
+                        title: 'Important',
+                        todos: importantTodos,
+                        isExpanded: effectiveImportantExpanded,
+                        onToggleExpanded: () {
+                          setState(() {
+                            _importantExpanded = !_importantExpanded;
+                          });
+                        },
+                        manageMode: _manageMode,
+                        onReorder: _manageMode
+                            ? (oldIndex, newIndex) {
+                                todoProvider.reorderTodos(
+                                  bucket: TodoBucket.important,
+                                  oldIndex: oldIndex,
+                                  newIndex: newIndex,
+                                );
+                              }
+                            : null,
+                        emptyLabel: hasSearchQuery
+                            ? 'No important todos match this search.'
+                            : 'No important todos yet.',
+                        tileBuilder: _buildSectionTile,
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    TodoSectionPanel(
+                      title: 'Pending',
+                      todos: pendingTodos,
+                      isExpanded: effectivePendingExpanded,
+                      onToggleExpanded: () {
+                        setState(() {
+                          _pendingExpanded = !_pendingExpanded;
+                        });
+                      },
+                      manageMode: _manageMode,
+                      onReorder: _manageMode
+                          ? (oldIndex, newIndex) {
+                              todoProvider.reorderTodos(
+                                bucket: TodoBucket.pending,
+                                oldIndex: oldIndex,
+                                newIndex: newIndex,
+                              );
+                            }
+                          : null,
+                      emptyLabel: hasSearchQuery
+                          ? 'No pending todos match this search.'
+                          : 'No pending todos yet.',
+                      tileBuilder: _buildSectionTile,
+                    ),
+                    const SizedBox(height: 14),
+                    TodoSectionPanel(
+                      title: 'Completed',
+                      todos: completedTodos,
+                      isExpanded: effectiveCompletedExpanded,
+                      onToggleExpanded: () {
+                        setState(() {
+                          _completedExpanded = !_completedExpanded;
+                        });
+                      },
+                      manageMode: _manageMode,
+                      onReorder: _manageMode
+                          ? (oldIndex, newIndex) {
+                              todoProvider.reorderTodos(
+                                bucket: TodoBucket.completed,
+                                oldIndex: oldIndex,
+                                newIndex: newIndex,
+                              );
+                            }
+                          : null,
+                      emptyLabel: hasSearchQuery
+                          ? 'No completed todos match this search.'
+                          : 'Completed tasks will gather here.',
+                      tileBuilder: _buildSectionTile,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 14),
-              ],
-              TodoSectionPanel(
-                title: 'Pending',
-                todos: pendingTodos,
-                isExpanded: _pendingExpanded,
-                onToggleExpanded: () {
-                  setState(() {
-                    _pendingExpanded = !_pendingExpanded;
-                  });
-                },
-                manageMode: _manageMode,
-                onReorder: _manageMode
-                    ? (oldIndex, newIndex) {
-                        todoProvider.reorderTodos(
-                          bucket: TodoBucket.pending,
-                          oldIndex: oldIndex,
-                          newIndex: newIndex,
-                        );
-                      }
-                    : null,
-                emptyLabel: hasSearchQuery
-                    ? 'No pending todos match this search.'
-                    : 'No pending todos yet.',
-                tileBuilder: _buildSectionTile,
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchEmptyState extends StatelessWidget {
+  const _SearchEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              size: 42,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'No todos match this search.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
-              const SizedBox(height: 14),
-              TodoSectionPanel(
-                title: 'Completed',
-                todos: completedTodos,
-                isExpanded: _completedExpanded,
-                onToggleExpanded: () {
-                  setState(() {
-                    _completedExpanded = !_completedExpanded;
-                  });
-                },
-                manageMode: _manageMode,
-                onReorder: _manageMode
-                    ? (oldIndex, newIndex) {
-                        todoProvider.reorderTodos(
-                          bucket: TodoBucket.completed,
-                          oldIndex: oldIndex,
-                          newIndex: newIndex,
-                        );
-                      }
-                    : null,
-                emptyLabel: hasSearchQuery
-                    ? 'No completed todos match this search.'
-                    : 'Completed tasks will gather here.',
-                tileBuilder: _buildSectionTile,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

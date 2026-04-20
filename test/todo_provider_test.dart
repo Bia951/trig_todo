@@ -69,18 +69,27 @@ void main() {
     expect(provider.pendingTodos.map((todo) => todo.id), ['2', '1']);
   });
 
-  test('filteredTodos matches title, content and notes', () {
-    final provider = TodoProvider(
-      initialTodos: [
-        buildTodo(id: '1', title: 'Alpha'),
-        buildTodo(id: '2', title: 'Beta'),
-      ],
-    );
+  test(
+    'filteredTodos matches title, content, notes, reminder and deadline',
+    () {
+      final provider = TodoProvider(
+        initialTodos: [
+          buildTodo(id: '1', title: 'Alpha'),
+          buildTodo(id: '2', title: 'Beta'),
+        ],
+      );
 
-    provider.setSearchQuery('beta content');
-    expect(provider.filteredTodos.single.title, 'Beta');
+      provider.setSearchQuery('beta content');
+      expect(provider.filteredTodos.single.title, 'Beta');
 
-    provider.setSearchQuery('alpha notes');
-    expect(provider.filteredTodos.single.title, 'Alpha');
-  });
+      provider.setSearchQuery('alpha notes');
+      expect(provider.filteredTodos.single.title, 'Alpha');
+
+      provider.setSearchQuery('2026-04-19 09:00');
+      expect(provider.filteredTodos, hasLength(2));
+
+      provider.setSearchQuery('2026-04-19 18:00');
+      expect(provider.filteredTodos, hasLength(2));
+    },
+  );
 }
