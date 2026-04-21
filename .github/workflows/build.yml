@@ -236,8 +236,16 @@ jobs:
         run: |
           brew install create-dmg imagemagick
 
-      - name: Build macOS universal app bundle
-        run: flutter build macos --${{ inputs.build_mode }} --target-platform darwin-x64,darwin-arm64
+      - name: Resolve macOS architecture label
+        run: |
+          case "${RUNNER_ARCH}" in
+            X64) echo "MACOS_ARCH_LABEL=x86_64" >> "$GITHUB_ENV" ;;
+            ARM64) echo "MACOS_ARCH_LABEL=aarch64" >> "$GITHUB_ENV" ;;
+            *) echo "MACOS_ARCH_LABEL=$(echo "${RUNNER_ARCH}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV" ;;
+          esac
+
+      - name: Build macOS app bundle
+        run: flutter build macos --${{ inputs.build_mode }}
 
       - name: Prepare macOS artifact
         run: |
@@ -254,14 +262,14 @@ jobs:
             --icon "trig_todo.app" 220 240 \
             --app-drop-link 580 240 \
             --background dist/dmg-background.png \
-            "dist/trig-macos-universal-${{ inputs.build_mode }}.dmg" \
+            "dist/trig-macos-${MACOS_ARCH_LABEL}-${{ inputs.build_mode }}.dmg" \
             "build/macos/Build/Products/${build_dir}/"
 
       - name: Upload macOS workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ inputs.build_mode }}
-          path: dist/trig-macos-universal-${{ inputs.build_mode }}.dmg
+          path: dist/trig-macos-${{ env.MACOS_ARCH_LABEL }}-${{ inputs.build_mode }}.dmg
 
       - name: Upload macOS asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -269,7 +277,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-macos-universal-${{ inputs.build_mode }}.dmg" \
+            "dist/trig-macos-${MACOS_ARCH_LABEL}-${{ inputs.build_mode }}.dmg" \
             --clobber
 
   build-windows:
@@ -298,6 +306,41 @@ jobs:
         run: |
           choco install innosetup wixtoolset --yes
 
+      - name: Resolve Windows tooling paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $innoCandidates = @(
+            (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
+            "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) }
+          $innoPath = $innoCandidates | Select-Object -First 1
+          if (-not $innoPath) {
+            throw "ISCC.exe not found after installing Inno Setup."
+          }
+
+          $wixBinDir = @("$env:ProgramFiles(x86)", "$env:ProgramFiles") |
+            Where-Object { $_ -and (Test-Path $_) } |
+            ForEach-Object {
+              Get-ChildItem $_ -Directory -Filter "WiX Toolset*" -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName "bin" }
+            } |
+            Where-Object { Test-Path (Join-Path $_ "heat.exe") } |
+            Sort-Object -Descending |
+            Select-Object -First 1
+
+          if (-not $wixBinDir) {
+            throw "WiX Toolset bin directory not found after installation."
+          }
+
+          $archLabel = if ($env:RUNNER_ARCH -eq "ARM64") { "aarch64" } else { "x86_64" }
+
+          "INNO_ISCC=$innoPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WIX_BIN_DIR=$wixBinDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "WINDOWS_ARCH_LABEL=$archLabel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Prepare Windows installers
         shell: pwsh
         run: |
@@ -317,7 +360,7 @@ jobs:
           DefaultDirName={autopf}\Trig
           DefaultGroupName=Trig
           OutputDir=dist
-          OutputBaseFilename=trig-windows-x86_64-${{ inputs.build_mode }}
+          OutputBaseFilename=trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}
           Compression=lzma
           SolidCompression=yes
 
@@ -329,9 +372,9 @@ jobs:
           Name: "{autodesktop}\Trig"; Filename: "{app}\trig_todo.exe"
           "@ | Set-Content installer-temp/trig.iss
 
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer-temp/trig.iss
+          & "$env:INNO_ISCC" installer-temp/trig.iss
 
-          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\heat.exe" dir "$appDir" `
+          & (Join-Path $env:WIX_BIN_DIR "heat.exe") dir "$appDir" `
             -cg AppFiles `
             -dr INSTALLDIR `
             -scom `
@@ -360,12 +403,12 @@ jobs:
           </Wix>
           "@ | Set-Content installer-temp/trig.wxs
 
-          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\candle.exe" `
+          & (Join-Path $env:WIX_BIN_DIR "candle.exe") `
             -dSourceDir="$appDir" `
             installer-temp/AppFiles.wxs `
             installer-temp/trig.wxs
-          & "C:\Program Files (x86)\WiX Toolset v3.11\bin\light.exe" `
-            -o "dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi" `
+          & (Join-Path $env:WIX_BIN_DIR "light.exe") `
+            -o "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.msi" `
             AppFiles.wixobj `
             trig.wixobj
 
@@ -374,8 +417,8 @@ jobs:
         with:
           name: windows-${{ inputs.build_mode }}
           path: |
-            dist/trig-windows-x86_64-${{ inputs.build_mode }}.exe
-            dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi
+            dist/trig-windows-${{ env.WINDOWS_ARCH_LABEL }}-${{ inputs.build_mode }}.exe
+            dist/trig-windows-${{ env.WINDOWS_ARCH_LABEL }}-${{ inputs.build_mode }}.msi
 
       - name: Upload Windows asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -384,6 +427,6 @@ jobs:
         shell: pwsh
         run: |
           gh release upload "${{ inputs.release_tag }}" `
-            "dist/trig-windows-x86_64-${{ inputs.build_mode }}.exe" `
-            "dist/trig-windows-x86_64-${{ inputs.build_mode }}.msi" `
+            "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.exe" `
+            "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.msi" `
             --clobber
