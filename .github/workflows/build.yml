@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   build-android:
-    name: Build Android APK
+    name: Android
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -88,7 +88,7 @@ jobs:
       - name: Upload Android workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-apks-${{ inputs.build_mode }}
+          name: android-${{ inputs.build_mode }}
           path: |
             dist/trig-android-universal-${{ inputs.build_mode }}.apk
             dist/trig-android-x86_64-${{ inputs.build_mode }}.apk
@@ -108,7 +108,7 @@ jobs:
             --clobber
 
   build-linux:
-    name: Build Linux Bundle and Packages
+    name: Linux (${{ matrix.arch_label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -277,7 +277,7 @@ jobs:
       - name: Upload Linux workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch_label }}-packages-${{ inputs.build_mode }}
+          name: linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           path: |
             dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.tar.gz
             dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.deb
@@ -299,7 +299,7 @@ jobs:
             --clobber
 
   build-macos:
-    name: Build macOS App
+    name: macOS (${{ matrix.arch_label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -354,7 +354,7 @@ jobs:
       - name: Upload macOS workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ matrix.arch_label }}-dmg-${{ inputs.build_mode }}
+          name: macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           path: dist/trig-macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}.dmg
 
       - name: Upload macOS asset to release
@@ -367,7 +367,7 @@ jobs:
             --clobber
 
   build-windows:
-    name: Build Windows App
+    name: Windows (${{ matrix.arch_label }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
@@ -547,7 +547,7 @@ jobs:
       - name: Upload Windows workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch_label }}-installers-${{ inputs.build_mode }}
+          name: windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           path: |
             dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.exe
             dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.msi

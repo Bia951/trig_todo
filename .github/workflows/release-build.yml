@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-release-artifacts:
-    name: Build release artifacts
+    name: Release build
     uses: ./.github/workflows/build.yml
     with:
       build_mode: release

@@ -110,7 +110,7 @@ jobs:
           fi
 
   build-nightly-artifacts:
-    name: Build nightly artifacts
+    name: Nightly build
     needs:
       - check-commits
       - prepare-nightly-release
