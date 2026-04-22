@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "trig_todo" "\0"
+            VALUE "CompanyName", "Bia951" "\0"
+            VALUE "FileDescription", "Trig" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "trig_todo" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "trig_todo.exe" "\0"
-            VALUE "ProductName", "trig_todo" "\0"
+            VALUE "InternalName", "trig" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Bia951. All rights reserved." "\0"
+            VALUE "OriginalFilename", "trig.exe" "\0"
+            VALUE "ProductName", "Trig" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

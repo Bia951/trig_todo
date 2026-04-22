@@ -109,8 +109,20 @@ jobs:
 
   build-linux:
     name: Build Linux Bundle and Packages
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch_label: x86_64
+            deb_arch: amd64
+            rpm_arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch_label: aarch64
+            deb_arch: arm64
+            rpm_arch: aarch64
 
     steps:
       - name: Checkout repository
@@ -122,8 +134,11 @@ jobs:
           sudo apt-get install -y \
             clang \
             cmake \
+            flatpak \
+            flatpak-builder \
             libgtk-3-dev \
             ninja-build \
+            ostree \
             patchelf \
             rpm \
             ruby \
@@ -147,10 +162,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p dist package-root/opt/trig_todo package-root/usr/bin
+          mkdir -p \
+            dist \
+            package-root/opt/trig \
+            package-root/usr/bin \
+            flatpak-stage/trig
           build_dir="release"
           if [ "${{ inputs.build_mode }}" = "debug" ]; then
             build_dir="debug"
+          fi
+          bundle_dir=$(find build/linux -type d -path "*/${build_dir}/bundle" | head -n 1)
+          if [ -z "$bundle_dir" ]; then
+            echo "Unable to locate Linux bundle directory." >&2
+            exit 1
           fi
 
           version_line=$(awk '/^version:/{print $2}' pubspec.yaml)
@@ -160,24 +184,31 @@ jobs:
             build_number="1"
           fi
 
-          cp -R "build/linux/x64/${build_dir}/bundle/"* package-root/opt/trig_todo/
+          cp -R "${bundle_dir}/"* package-root/opt/trig/
+          cp -R "${bundle_dir}/"* flatpak-stage/trig/
 
-          cat > package-root/usr/bin/trig_todo <<'EOF'
+          cat > package-root/usr/bin/trig <<'EOF'
           #!/usr/bin/env bash
-          exec /opt/trig_todo/trig_todo "$@"
+          exec /opt/trig/trig "$@"
           EOF
-          chmod +x package-root/usr/bin/trig_todo
+          chmod +x package-root/usr/bin/trig
 
-          tar -C "build/linux/x64/${build_dir}" -czf \
-            dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz \
+          cat > flatpak-stage/trig-launcher.sh <<'EOF'
+          #!/usr/bin/env bash
+          exec /app/trig/trig "$@"
+          EOF
+          chmod +x flatpak-stage/trig-launcher.sh
+
+          tar -C "$(dirname "$bundle_dir")" -czf \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.tar.gz" \
             bundle
 
           fpm -s dir -t deb \
             -n trig \
             -v "$version_name" \
             --iteration "$build_number" \
-            --architecture amd64 \
-            --package "dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb" \
+            --architecture "${{ matrix.deb_arch }}" \
+            --package "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.deb" \
             --description "Trig Todo App" \
             -C package-root \
             .
@@ -186,20 +217,59 @@ jobs:
             -n trig \
             -v "$version_name" \
             --iteration "$build_number" \
-            --architecture x86_64 \
-            --package "dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm" \
+            --architecture "${{ matrix.rpm_arch }}" \
+            --package "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.rpm" \
             --description "Trig Todo App" \
             -C package-root \
             .
 
+          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+
+          cat > flatpak-stage/com.bia951.trig.yml <<'EOF'
+          app-id: com.bia951.trig
+          runtime: org.freedesktop.Platform
+          runtime-version: '24.08'
+          sdk: org.freedesktop.Sdk
+          command: trig-launcher
+          finish-args:
+            - --share=network
+            - --socket=wayland
+            - --socket=fallback-x11
+            - --device=dri
+          modules:
+            - name: trig
+              buildsystem: simple
+              build-commands:
+                - install -d /app/trig /app/bin
+                - cp -r trig/. /app/trig/
+                - install -Dm755 trig-launcher.sh /app/bin/trig-launcher
+              sources:
+                - type: dir
+                  path: trig
+                - type: file
+                  path: trig-launcher.sh
+          EOF
+
+          flatpak-builder \
+            --force-clean \
+            --repo=flatpak-repo \
+            flatpak-build-dir \
+            flatpak-stage/com.bia951.trig.yml
+          flatpak build-bundle \
+            flatpak-repo \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.flatpak" \
+            com.bia951.trig
+
       - name: Upload Linux workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ inputs.build_mode }}
+          name: linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           path: |
-            dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz
-            dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb
-            dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm
+            dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.tar.gz
+            dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.deb
+            dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.rpm
+            dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.flatpak
 
       - name: Upload Linux assets to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -209,15 +279,24 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.tar.gz" \
-            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.deb" \
-            "dist/trig-linux-x86_64-${{ inputs.build_mode }}.rpm" \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.tar.gz" \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.deb" \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.rpm" \
+            "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.flatpak" \
             --clobber
 
   build-macos:
     name: Build macOS App
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch_label: x86_64
+          - runner: macos-latest
+            arch_label: aarch64
 
     steps:
       - name: Checkout repository
@@ -236,14 +315,6 @@ jobs:
         run: |
           brew install create-dmg imagemagick
 
-      - name: Resolve macOS architecture label
-        run: |
-          case "${RUNNER_ARCH}" in
-            X64) echo "MACOS_ARCH_LABEL=x86_64" >> "$GITHUB_ENV" ;;
-            ARM64) echo "MACOS_ARCH_LABEL=aarch64" >> "$GITHUB_ENV" ;;
-            *) echo "MACOS_ARCH_LABEL=$(echo "${RUNNER_ARCH}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV" ;;
-          esac
-
       - name: Build macOS app bundle
         run: flutter build macos --${{ inputs.build_mode }}
 
@@ -254,22 +325,24 @@ jobs:
           if [ "${{ inputs.build_mode }}" = "release" ]; then
             build_dir="Release"
           fi
+          app_name=$(find "build/macos/Build/Products/${build_dir}" -maxdepth 1 -name "*.app" -print -quit)
+          app_basename=$(basename "$app_name")
           magick -size 800x480 canvas:none dist/dmg-background.png
           create-dmg \
             --volname "Trig" \
             --window-size 800 480 \
             --icon-size 128 \
-            --icon "trig_todo.app" 220 240 \
+            --icon "$app_basename" 220 240 \
             --app-drop-link 580 240 \
             --background dist/dmg-background.png \
-            "dist/trig-macos-${MACOS_ARCH_LABEL}-${{ inputs.build_mode }}.dmg" \
+            "dist/trig-macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}.dmg" \
             "build/macos/Build/Products/${build_dir}/"
 
       - name: Upload macOS workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-${{ inputs.build_mode }}
-          path: dist/trig-macos-${{ env.MACOS_ARCH_LABEL }}-${{ inputs.build_mode }}.dmg
+          name: macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}
+          path: dist/trig-macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}.dmg
 
       - name: Upload macOS asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -277,13 +350,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ inputs.release_tag }}" \
-            "dist/trig-macos-${MACOS_ARCH_LABEL}-${{ inputs.build_mode }}.dmg" \
+            "dist/trig-macos-${{ matrix.arch_label }}-${{ inputs.build_mode }}.dmg" \
             --clobber
 
   build-windows:
     name: Build Windows App
-    runs-on: windows-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch_label: x86_64
+          - runner: windows-11-arm
+            arch_label: aarch64
 
     steps:
       - name: Checkout repository
@@ -335,11 +416,8 @@ jobs:
             throw "WiX Toolset bin directory not found after installation."
           }
 
-          $archLabel = if ($env:RUNNER_ARCH -eq "ARM64") { "aarch64" } else { "x86_64" }
-
           "INNO_ISCC=$innoPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "WIX_BIN_DIR=$wixBinDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "WINDOWS_ARCH_LABEL=$archLabel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Prepare Windows installers
         shell: pwsh
@@ -349,7 +427,13 @@ jobs:
           New-Item -ItemType Directory -Path installer-temp -Force | Out-Null
 
           $buildDir = if ("${{ inputs.build_mode }}" -eq "release") { "Release" } else { "Debug" }
-          $appDir = "build/windows/x64/runner/$buildDir"
+          $exeFile = Get-ChildItem build/windows -Recurse -Filter trig.exe |
+            Where-Object { $_.FullName -match "\\runner\\$buildDir\\" } |
+            Select-Object -First 1
+          if (-not $exeFile) {
+            throw "Unable to locate built trig.exe under build/windows."
+          }
+          $appDir = $exeFile.Directory.FullName
           $versionLine = (Get-Content pubspec.yaml | Select-String '^version:' | ForEach-Object { $_.ToString().Split(':')[1].Trim() })
           $versionName = $versionLine.Split('+')[0]
 
@@ -360,16 +444,16 @@ jobs:
           DefaultDirName={autopf}\Trig
           DefaultGroupName=Trig
           OutputDir=dist
-          OutputBaseFilename=trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}
+          OutputBaseFilename=trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           Compression=lzma
           SolidCompression=yes
 
           [Files]
-          Source: "$appDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "$($appDir)\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
           [Icons]
-          Name: "{group}\Trig"; Filename: "{app}\trig_todo.exe"
-          Name: "{autodesktop}\Trig"; Filename: "{app}\trig_todo.exe"
+          Name: "{group}\Trig"; Filename: "{app}\trig.exe"
+          Name: "{autodesktop}\Trig"; Filename: "{app}\trig.exe"
           "@ | Set-Content installer-temp/trig.iss
 
           & "$env:INNO_ISCC" installer-temp/trig.iss
@@ -408,17 +492,17 @@ jobs:
             installer-temp/AppFiles.wxs `
             installer-temp/trig.wxs
           & (Join-Path $env:WIX_BIN_DIR "light.exe") `
-            -o "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.msi" `
+            -o "dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.msi" `
             AppFiles.wixobj `
             trig.wixobj
 
       - name: Upload Windows workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ inputs.build_mode }}
+          name: windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           path: |
-            dist/trig-windows-${{ env.WINDOWS_ARCH_LABEL }}-${{ inputs.build_mode }}.exe
-            dist/trig-windows-${{ env.WINDOWS_ARCH_LABEL }}-${{ inputs.build_mode }}.msi
+            dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.exe
+            dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.msi
 
       - name: Upload Windows asset to release
         if: ${{ inputs.upload_to_release && inputs.release_tag != '' }}
@@ -427,6 +511,6 @@ jobs:
         shell: pwsh
         run: |
           gh release upload "${{ inputs.release_tag }}" `
-            "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.exe" `
-            "dist/trig-windows-$env:WINDOWS_ARCH_LABEL-${{ inputs.build_mode }}.msi" `
+            "dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.exe" `
+            "dist/trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}.msi" `
             --clobber

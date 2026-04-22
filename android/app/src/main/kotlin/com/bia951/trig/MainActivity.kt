@@ -1,4 +1,4 @@
-package com.example.trig_todo
+package com.bia951.trig
 
 import io.flutter.embedding.android.FlutterActivity
 

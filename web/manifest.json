@@ -1,6 +1,6 @@
 {
-    "name": "trig_todo",
-    "short_name": "trig_todo",
+    "name": "Trig",
+    "short_name": "Trig",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

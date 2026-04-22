@@ -45,7 +45,7 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
     const linux = LinuxInitializationSettings(defaultActionName: 'Open Trig');
     const windows = WindowsInitializationSettings(
       appName: 'Trig',
-      appUserModelId: 'Trig.Todo.App',
+      appUserModelId: 'com.bia951.trig',
       guid: _windowsGuid,
     );
 
