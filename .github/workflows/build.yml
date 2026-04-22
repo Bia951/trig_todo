@@ -255,7 +255,7 @@ jobs:
               buildsystem: simple
               build-commands:
                 - install -d /app/trig /app/bin
-                - cp -r trig/. /app/trig/
+                - find . -mindepth 1 -maxdepth 1 ! -name trig-launcher.sh -exec cp -r {} /app/trig/ \;
                 - install -Dm755 trig-launcher.sh /app/bin/trig-launcher
               sources:
                 - type: dir
@@ -376,8 +376,10 @@ jobs:
         include:
           - runner: windows-latest
             arch_label: x86_64
-          - runner: windows-11-arm
-            arch_label: aarch64
+        # Windows ARM64 is temporarily disabled.
+        # On GitHub Actions stable Flutter currently resolves to an x64 Windows
+        # build/toolchain path here, which then conflicts with the ARM64 JDK
+        # required by the transitive jni plugin.
 
     steps:
       - name: Checkout repository
@@ -475,13 +477,14 @@ jobs:
           New-Item -ItemType Directory -Path installer-temp -Force | Out-Null
 
           $buildDir = if ("${{ inputs.build_mode }}" -eq "release") { "Release" } else { "Debug" }
-          $exeFile = Get-ChildItem build/windows -Recurse -Filter trig.exe |
-            Where-Object { $_.FullName -match "\\runner\\$buildDir\\" } |
+          $windowsArchDir = if ("${{ matrix.arch_label }}" -eq "aarch64") { "arm64" } else { "x64" }
+          $exeFile = Get-ChildItem "build/windows/$windowsArchDir/runner/$buildDir" -Recurse -Filter trig.exe -ErrorAction SilentlyContinue |
             Select-Object -First 1
           if (-not $exeFile) {
-            throw "Unable to locate built trig.exe under build/windows."
+            throw "Unable to locate built trig.exe under build/windows/$windowsArchDir/runner/$buildDir."
           }
           $appDir = $exeFile.Directory.FullName
+          $distDir = (Resolve-Path dist).Path
           $versionLine = (Get-Content pubspec.yaml | Select-String '^version:' | ForEach-Object { $_.ToString().Split(':')[1].Trim() })
           $versionName = $versionLine.Split('+')[0]
 
@@ -491,7 +494,7 @@ jobs:
           AppVersion=$versionName
           DefaultDirName={autopf}\Trig
           DefaultGroupName=Trig
-          OutputDir=dist
+          OutputDir=$distDir
           OutputBaseFilename=trig-windows-${{ matrix.arch_label }}-${{ inputs.build_mode }}
           Compression=lzma
           SolidCompression=yes
