@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Trig
+GenericName=Todo Manager
+Comment=Track tasks with reminders, deadlines, and notes
+Exec=trig
+Icon=com.bia951.trig
+Terminal=false
+Categories=Office;Utility;
+Keywords=todo;tasks;reminders;deadlines;notes;productivity;
+StartupNotify=true

@@ -292,6 +292,55 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                               ),
                                               onPressed: _pickDeadlineDateTime,
                                             ),
+                                            const SizedBox(height: 12),
+                                            _EditableMetaTile(
+                                              icon: Icons
+                                                  .notifications_none_rounded,
+                                              label: 'Days before DDL alert',
+                                              value:
+                                                  _draft.remindDaysBeforeDDL ==
+                                                      0
+                                                  ? 'Off'
+                                                  : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                              onPressed: () {
+                                                showDialog<int>(
+                                                  context: context,
+                                                  builder: (ctx) => SimpleDialog(
+                                                    title: const Text(
+                                                      'Days before deadline',
+                                                    ),
+                                                    children: [0, 1, 2, 3, 7, 14, 30]
+                                                        .map(
+                                                          (
+                                                            d,
+                                                          ) => SimpleDialogOption(
+                                                            onPressed: () =>
+                                                                Navigator.pop(
+                                                                  ctx,
+                                                                  d,
+                                                                ),
+                                                            child: Text(
+                                                              d == 0
+                                                                  ? 'Off'
+                                                                  : '$d day${d == 1 ? '' : 's'} before',
+                                                            ),
+                                                          ),
+                                                        )
+                                                        .toList(),
+                                                  ),
+                                                ).then((value) {
+                                                  if (value != null &&
+                                                      mounted) {
+                                                    setState(() {
+                                                      _draft = _draft.copyWith(
+                                                        remindDaysBeforeDDL:
+                                                            value,
+                                                      );
+                                                    });
+                                                  }
+                                                });
+                                              },
+                                            ),
                                             const SizedBox(height: 16),
                                           ] else ...[
                                             _ReadOnlySection(
@@ -323,6 +372,17 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                                 _draft.deadline,
                                               ),
                                               icon: Icons.event,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Days before DDL alert',
+                                              value:
+                                                  _draft.remindDaysBeforeDDL ==
+                                                      0
+                                                  ? 'Off'
+                                                  : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                              icon: Icons
+                                                  .notifications_none_rounded,
                                             ),
                                             const SizedBox(height: 12),
                                             _ReadOnlySection(
@@ -657,7 +717,9 @@ class _ReminderLeadSlider extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '$value day${value == 1 ? '' : 's'} before deadline',
+            value == 0
+                ? 'Off'
+                : '$value day${value == 1 ? '' : 's'} before deadline',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -665,8 +727,8 @@ class _ReminderLeadSlider extends StatelessWidget {
           Slider(
             value: value.toDouble(),
             min: 0,
-            max: 14,
-            divisions: 14,
+            max: 30,
+            divisions: 30,
             label: '$value',
             onChanged: (newValue) => onChanged(newValue.round()),
           ),

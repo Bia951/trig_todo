@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.bia951.trig</id>
+  <name>Trig</name>
+  <summary>Track tasks with reminders, deadlines, and notes</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>Bia</developer_name>
+  <launchable type="desktop-id">com.bia951.trig.desktop</launchable>
+  <provides>
+    <binary>trig</binary>
+  </provides>
+  <description>
+    <p>Trig is a focused task manager for capturing todos, reminder times, deadlines, and supporting notes in one place.</p>
+    <p>Use it to keep important items visible, separate completed work from active tasks, and search across titles, notes, and scheduled times.</p>
+  </description>
+  <url type="homepage">https://github.com/Bia951/trig_todo</url>
+  <url type="bugtracker">https://github.com/Bia951/trig_todo/issues</url>
+  <icon type="stock">com.bia951.trig</icon>
+</component>

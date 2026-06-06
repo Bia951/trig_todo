@@ -1,0 +1,32 @@
+app-id: com.bia951.trig
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: trig
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --talk-name=org.freedesktop.Notifications
+modules:
+  - name: trig
+    buildsystem: simple
+    build-commands:
+      - install -d /app/trig
+      - cp -r bundle/. /app/trig/
+      - install -Dm755 trig-launcher.sh /app/bin/trig
+      - install -Dm644 com.bia951.trig.desktop /app/share/applications/com.bia951.trig.desktop
+      - install -Dm644 com.bia951.trig.metainfo.xml /app/share/metainfo/com.bia951.trig.metainfo.xml
+      - install -Dm644 com.bia951.trig.svg /app/share/icons/hicolor/scalable/apps/com.bia951.trig.svg
+    sources:
+      - type: dir
+        path: bundle
+      - type: file
+        path: trig-launcher.sh
+      - type: file
+        path: com.bia951.trig.desktop
+      - type: file
+        path: com.bia951.trig.metainfo.xml
+      - type: file
+        path: com.bia951.trig.svg

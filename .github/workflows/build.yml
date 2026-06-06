@@ -132,8 +132,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            appstream \
             clang \
             cmake \
+            desktop-file-utils \
             flatpak \
             flatpak-builder \
             libgtk-3-dev \
@@ -179,7 +181,11 @@ jobs:
             dist \
             package-root/opt/trig \
             package-root/usr/bin \
-            flatpak-stage/trig
+            package-root/usr/share/applications \
+            package-root/usr/share/icons/hicolor/512x512/apps \
+            package-root/usr/share/icons/hicolor/scalable/apps \
+            package-root/usr/share/metainfo \
+            flatpak-stage/bundle
           build_dir="release"
           if [ "${{ inputs.build_mode }}" = "debug" ]; then
             build_dir="debug"
@@ -197,8 +203,8 @@ jobs:
             build_number="1"
           fi
 
-          cp -R "${bundle_dir}/"* package-root/opt/trig/
-          cp -R "${bundle_dir}/"* flatpak-stage/trig/
+          cp -R "${bundle_dir}/". package-root/opt/trig/
+          cp -R "${bundle_dir}/". flatpak-stage/bundle/
 
           cat > package-root/usr/bin/trig <<'EOF'
           #!/usr/bin/env bash
@@ -206,11 +212,39 @@ jobs:
           EOF
           chmod +x package-root/usr/bin/trig
 
-          cat > flatpak-stage/trig-launcher.sh <<'EOF'
-          #!/usr/bin/env bash
-          exec /app/trig/trig "$@"
-          EOF
-          chmod +x flatpak-stage/trig-launcher.sh
+          install -Dm644 \
+            linux/packaging/linux/share/applications/com.bia951.trig.desktop \
+            package-root/usr/share/applications/com.bia951.trig.desktop
+          install -Dm644 \
+            linux/packaging/linux/share/icons/hicolor/512x512/apps/com.bia951.trig.png \
+            package-root/usr/share/icons/hicolor/512x512/apps/com.bia951.trig.png
+          install -Dm644 \
+            linux/packaging/linux/share/icons/hicolor/scalable/apps/com.bia951.trig.svg \
+            package-root/usr/share/icons/hicolor/scalable/apps/com.bia951.trig.svg
+          install -Dm644 \
+            linux/packaging/linux/share/metainfo/com.bia951.trig.metainfo.xml \
+            package-root/usr/share/metainfo/com.bia951.trig.metainfo.xml
+
+          install -Dm644 \
+            linux/packaging/flatpak/com.bia951.trig.yml \
+            flatpak-stage/com.bia951.trig.yml
+          install -Dm755 \
+            linux/packaging/flatpak/trig-launcher.sh \
+            flatpak-stage/trig-launcher.sh
+          install -Dm644 \
+            linux/packaging/linux/share/applications/com.bia951.trig.desktop \
+            flatpak-stage/com.bia951.trig.desktop
+          install -Dm644 \
+            linux/packaging/linux/share/metainfo/com.bia951.trig.metainfo.xml \
+            flatpak-stage/com.bia951.trig.metainfo.xml
+          install -Dm644 \
+            linux/packaging/linux/share/icons/hicolor/scalable/apps/com.bia951.trig.svg \
+            flatpak-stage/com.bia951.trig.svg
+
+          desktop-file-validate \
+            linux/packaging/linux/share/applications/com.bia951.trig.desktop
+          appstreamcli validate --no-net \
+            linux/packaging/linux/share/metainfo/com.bia951.trig.metainfo.xml
 
           tar -C "$(dirname "$bundle_dir")" -czf \
             "dist/trig-linux-${{ matrix.arch_label }}-${{ inputs.build_mode }}.tar.gz" \
@@ -238,31 +272,6 @@ jobs:
 
           flatpak --user remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           flatpak --user install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
-
-          cat > flatpak-stage/com.bia951.trig.yml <<'EOF'
-          app-id: com.bia951.trig
-          runtime: org.freedesktop.Platform
-          runtime-version: '24.08'
-          sdk: org.freedesktop.Sdk
-          command: trig-launcher
-          finish-args:
-            - --share=network
-            - --socket=wayland
-            - --socket=fallback-x11
-            - --device=dri
-          modules:
-            - name: trig
-              buildsystem: simple
-              build-commands:
-                - install -d /app/trig /app/bin
-                - find . -mindepth 1 -maxdepth 1 ! -name trig-launcher.sh -exec cp -r {} /app/trig/ \;
-                - install -Dm755 trig-launcher.sh /app/bin/trig-launcher
-              sources:
-                - type: dir
-                  path: trig
-                - type: file
-                  path: trig-launcher.sh
-          EOF
 
           flatpak-builder \
             --force-clean \

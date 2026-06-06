@@ -70,6 +70,7 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
 
     await _plugin.cancel(id: _notificationId(todoId, 0));
     await _plugin.cancel(id: _notificationId(todoId, 1));
+    await _plugin.cancel(id: _notificationId(todoId, 2));
   }
 
   @override
@@ -87,14 +88,11 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
       return;
     }
 
-    final reminderMoment = tz.TZDateTime.from(todo.reminderTime, tz.local);
-    final leadDays = todo.remindDaysBeforeDDL.clamp(0, 365).toInt();
-    final deadlineMoment = tz.TZDateTime.from(
-      todo.deadline.subtract(Duration(days: leadDays)),
-      tz.local,
-    );
     final now = tz.TZDateTime.now(tz.local);
+    final reminderMoment = tz.TZDateTime.from(todo.reminderTime, tz.local);
+    final deadlineMoment = tz.TZDateTime.from(todo.deadline, tz.local);
 
+    // 1) Reminder time notification
     if (reminderMoment.isAfter(now)) {
       await _schedule(
         id: _notificationId(todo.id, 0),
@@ -104,6 +102,7 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
       );
     }
 
+    // 2) Deadline notification
     final isDistinctDeadlineAlert =
         deadlineMoment.millisecondsSinceEpoch !=
         reminderMoment.millisecondsSinceEpoch;
@@ -111,9 +110,31 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
       await _schedule(
         id: _notificationId(todo.id, 1),
         title: 'Deadline alert: ${todo.presentationTitle}',
-        body: _deadlineBody(todo, deadlineMoment),
+        body: _deadlineBody(todo),
         when: deadlineMoment,
       );
+    }
+
+    // 3) Days-before-ddl notification (only when leadDays > 0)
+    final leadDays = todo.remindDaysBeforeDDL.clamp(0, 365).toInt();
+    if (leadDays > 0) {
+      final aheadMoment = tz.TZDateTime.from(
+        todo.deadline.subtract(Duration(days: leadDays)),
+        tz.local,
+      );
+      final isDistinct =
+          aheadMoment.millisecondsSinceEpoch !=
+              reminderMoment.millisecondsSinceEpoch &&
+          aheadMoment.millisecondsSinceEpoch !=
+              deadlineMoment.millisecondsSinceEpoch;
+      if (aheadMoment.isAfter(now) && isDistinct) {
+        await _schedule(
+          id: _notificationId(todo.id, 2),
+          title: '$leadDays d before deadline: ${todo.presentationTitle}',
+          body: _primaryBody(todo),
+          when: aheadMoment,
+        );
+      }
     }
   }
 
@@ -138,9 +159,10 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
     }
   }
 
-  String _deadlineBody(Todo todo, tz.TZDateTime when) {
+  String _deadlineBody(Todo todo) {
     final suffix = _primaryBody(todo);
-    final formattedMoment = _formatMoment(when);
+    final deadlineMoment = tz.TZDateTime.from(todo.deadline, tz.local);
+    final formattedMoment = _formatMoment(deadlineMoment);
     return 'Due by $formattedMoment. $suffix';
   }
 

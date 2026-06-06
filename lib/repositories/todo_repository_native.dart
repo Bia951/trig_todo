@@ -13,7 +13,7 @@ Future<TodoRepository> createPlatformTodoRepository() async {
     return IsarTodoRepository(existing);
   }
 
-  final directory = await getApplicationDocumentsDirectory();
+  final directory = await getApplicationSupportDirectory();
   final isar = await Isar.open(
     <CollectionSchema<dynamic>>[TodoRecordSchema],
     directory: directory.path,
