@@ -30,6 +30,16 @@ void main() {
     expect(provider.todos.single.title, 'Updated first');
   });
 
+  test('createDraft defaults reminder to one hour and deadline to one day', () {
+    final provider = TodoProvider(initialTodos: []);
+    final reference = DateTime(2026, 4, 19, 9, 30);
+
+    final draft = provider.createDraft(reference: reference);
+
+    expect(draft.reminderTime, reference.add(const Duration(hours: 1)));
+    expect(draft.deadline, reference.add(const Duration(days: 1)));
+  });
+
   test('toggleMute and removeTodo mutate existing items', () {
     final provider = TodoProvider(
       initialTodos: [buildTodo(id: '1', title: 'First')],
@@ -54,6 +64,38 @@ void main() {
     provider.toggleCompleted('1');
     expect(provider.completedTodos.single.id, '1');
     expect(provider.importantTodos, isEmpty);
+  });
+
+  test('completeTodos marks only selected incomplete todos completed', () {
+    final provider = TodoProvider(
+      initialTodos: [
+        buildTodo(id: '1', title: 'One'),
+        buildTodo(id: '2', title: 'Two').copyWith(isCompleted: true),
+        buildTodo(id: '3', title: 'Three'),
+      ],
+    );
+
+    provider.completeTodos(['1', '2']);
+
+    expect(
+      provider.completedTodos.map((todo) => todo.id),
+      containsAll(['1', '2']),
+    );
+    expect(provider.pendingTodos.map((todo) => todo.id), ['3']);
+  });
+
+  test('removeTodos deletes all matching ids', () {
+    final provider = TodoProvider(
+      initialTodos: [
+        buildTodo(id: '1', title: 'One'),
+        buildTodo(id: '2', title: 'Two'),
+        buildTodo(id: '3', title: 'Three'),
+      ],
+    );
+
+    provider.removeTodos(['1', '3', 'missing']);
+
+    expect(provider.todos.map((todo) => todo.id), ['2']);
   });
 
   test('reorderTodos updates manual sort order within a bucket', () {

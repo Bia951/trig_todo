@@ -16,7 +16,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _searchController;
-  bool _manageMode = false;
+  bool _batchMode = false;
+  final Set<String> _selectedTodoIds = <String>{};
   bool _didInitializeExpansions = false;
   bool _importantExpanded = false;
   bool _pendingExpanded = true;
@@ -80,16 +81,18 @@ class _HomeScreenState extends State<HomeScreen> {
     FocusManager.instance.primaryFocus?.unfocus();
   }
 
-  void _toggleManageMode() {
+  void _toggleBatchMode() {
     _dismissKeyboard();
     final provider = context.read<TodoProvider>();
-    if (!_manageMode && provider.searchQuery.isNotEmpty) {
+    final willEnterBatchMode = !_batchMode;
+    if (willEnterBatchMode && provider.searchQuery.isNotEmpty) {
       _searchController.clear();
       provider.setSearchQuery('');
     }
 
     setState(() {
-      _manageMode = !_manageMode;
+      _batchMode = willEnterBatchMode;
+      _selectedTodoIds.clear();
     });
   }
 
@@ -102,16 +105,75 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _confirmDeleteTodo(Todo todo) async {
+  Future<void> _openTodoDetail(
+    Todo todo, {
+    required bool startInEditMode,
+  }) async {
     _dismissKeyboard();
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        transitionDuration: const Duration(milliseconds: 320),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return TodoCardPage(
+            initialTodo: todo,
+            heroTag: 'todo-card-${todo.id}',
+            startInEditMode: startInEditMode,
+            onClose: () => Navigator.of(context).maybePop(),
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curvedAnimation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.97, end: 1).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+              child: child,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _toggleSelectedTodo(String id) {
+    setState(() {
+      if (!_selectedTodoIds.add(id)) {
+        _selectedTodoIds.remove(id);
+      }
+    });
+  }
+
+  Future<void> _confirmDeleteSelectedTodos() async {
+    _dismissKeyboard();
+    final provider = context.read<TodoProvider>();
+    final selectedTodos = provider.todos
+        .where((todo) => _selectedTodoIds.contains(todo.id))
+        .toList(growable: false);
+    if (selectedTodos.isEmpty) {
+      return;
+    }
+
     final shouldDelete =
         await showDialog<bool>(
           context: context,
           builder: (context) {
             return AlertDialog(
-              title: const Text('Delete todo?'),
+              title: Text(
+                selectedTodos.length == 1
+                    ? 'Delete selected todo?'
+                    : 'Delete ${selectedTodos.length} selected todos?',
+              ),
               content: Text(
-                'This will remove "${todo.presentationTitle}" from your list.',
+                selectedTodos.length == 1
+                    ? 'This will remove "${selectedTodos.single.presentationTitle}" from your list.'
+                    : 'This will remove all selected todos from your list.',
               ),
               actions: [
                 TextButton(
@@ -132,25 +194,44 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    context.read<TodoProvider>().removeTodo(todo.id);
+    provider.removeTodos(selectedTodos.map((todo) => todo.id));
+    setState(() {
+      _selectedTodoIds.clear();
+    });
+  }
+
+  void _completeSelectedTodos() {
+    final provider = context.read<TodoProvider>();
+    final selectedTodos = provider.todos
+        .where((todo) => _selectedTodoIds.contains(todo.id))
+        .toList(growable: false);
+    if (selectedTodos.isEmpty) {
+      return;
+    }
+
+    final hasIncompleteTodo = selectedTodos.any((todo) => !todo.isCompleted);
+    provider.completeTodos(selectedTodos.map((todo) => todo.id));
+    setState(() {
+      _selectedTodoIds.clear();
+      if (hasIncompleteTodo) {
+        _completedExpanded = false;
+      }
+    });
   }
 
   Widget _buildSectionTile(BuildContext context, Todo todo) {
     return TodoTile(
       key: ValueKey('todo-${todo.id}'),
       todo: todo,
-      manageMode: _manageMode,
-      onRequestDelete: () => _confirmDeleteTodo(todo),
+      batchMode: _batchMode,
+      isSelected: _selectedTodoIds.contains(todo.id),
+      onOpenPreview: () => _openTodoDetail(todo, startInEditMode: false),
+      onOpenEdit: () => _openTodoDetail(todo, startInEditMode: true),
+      onToggleSelected: () => _toggleSelectedTodo(todo.id),
+      onToggleMute: () => context.read<TodoProvider>().toggleMute(todo.id),
       onToggleCompleted: () => _toggleCompleted(todo),
       onToggleStarred: () =>
           context.read<TodoProvider>().toggleStarred(todo.id),
-      detailBuilder: (context, closeContainer) {
-        return TodoCardPage(
-          initialTodo: todo,
-          heroTag: 'todo-card-${todo.id}',
-          onClose: closeContainer,
-        );
-      },
     );
   }
 
@@ -161,6 +242,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final importantTodos = todoProvider.importantTodos;
     final pendingTodos = todoProvider.pendingTodos;
     final completedTodos = todoProvider.completedTodos;
+    final selectedVisibleTodoCount = todoProvider.todos
+        .where((todo) => _selectedTodoIds.contains(todo.id))
+        .length;
     final hasSearchQuery = todoProvider.searchQuery.trim().isNotEmpty;
     final hasAnyVisibleTodos =
         importantTodos.isNotEmpty ||
@@ -188,11 +272,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Padding(
             padding: const EdgeInsets.only(left: 12),
             child: _ToolbarCircleButton(
-              tooltip: _manageMode ? 'Finish editing' : 'Edit list',
-              onPressed: _toggleManageMode,
+              tooltip: _batchMode ? 'Finish batch edit' : 'Batch edit',
+              onPressed: _toggleBatchMode,
               icon: Icon(
                 Icons.edit_outlined,
-                color: _manageMode ? theme.colorScheme.primary : null,
+                color: _batchMode ? theme.colorScheme.primary : null,
               ),
             ),
           ),
@@ -200,27 +284,89 @@ class _HomeScreenState extends State<HomeScreen> {
         titleSpacing: 0,
         title: Padding(
           padding: const EdgeInsets.only(left: 4, right: 8),
-          child: TextField(
-            controller: _searchController,
-            onChanged: todoProvider.setSearchQuery,
-            onTapOutside: (_) => _dismissKeyboard(),
-            textInputAction: TextInputAction.search,
-            decoration: const InputDecoration(
-              hintText: 'Search todo',
-              prefixIcon: Icon(Icons.search),
-              isDense: true,
-            ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 240),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: SizeTransition(
+                  sizeFactor: animation,
+                  axis: Axis.horizontal,
+                  child: child,
+                ),
+              );
+            },
+            child: _batchMode
+                ? _BatchModeTitle(
+                    key: const ValueKey('batch-title'),
+                    selectedCount: selectedVisibleTodoCount,
+                  )
+                : TextField(
+                    key: const ValueKey('search-field'),
+                    controller: _searchController,
+                    onChanged: todoProvider.setSearchQuery,
+                    onTapOutside: (_) => _dismissKeyboard(),
+                    textInputAction: TextInputAction.search,
+                    decoration: const InputDecoration(
+                      hintText: 'Search todo',
+                      prefixIcon: Icon(Icons.search),
+                      isDense: true,
+                    ),
+                  ),
           ),
         ),
         actions: [
-          Align(
-            alignment: Alignment.center,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: _ToolbarCircleButton(
-                tooltip: 'Add todo',
-                onPressed: _openComposer,
-                icon: const Icon(Icons.add),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.12, 0),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: _batchMode
+                    ? Row(
+                        key: const ValueKey('batch-actions'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _ToolbarCircleButton(
+                            tooltip: 'Delete selected',
+                            onPressed: selectedVisibleTodoCount == 0
+                                ? null
+                                : _confirmDeleteSelectedTodos,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                          const SizedBox(width: 8),
+                          _ToolbarCircleButton(
+                            tooltip: 'Complete selected',
+                            onPressed: selectedVisibleTodoCount == 0
+                                ? null
+                                : _completeSelectedTodos,
+                            icon: const Icon(Icons.check_box_outlined),
+                          ),
+                        ],
+                      )
+                    : _ToolbarCircleButton(
+                        key: const ValueKey('add-action'),
+                        tooltip: 'Add todo',
+                        onPressed: _openComposer,
+                        icon: const Icon(Icons.add),
+                      ),
               ),
             ),
           ),
@@ -260,8 +406,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             _importantExpanded = !_importantExpanded;
                           });
                         },
-                        manageMode: _manageMode,
-                        onReorder: _manageMode
+                        batchMode: _batchMode,
+                        onReorder: _batchMode
                             ? (oldIndex, newIndex) {
                                 todoProvider.reorderTodos(
                                   bucket: TodoBucket.important,
@@ -286,8 +432,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _pendingExpanded = !_pendingExpanded;
                         });
                       },
-                      manageMode: _manageMode,
-                      onReorder: _manageMode
+                      batchMode: _batchMode,
+                      onReorder: _batchMode
                           ? (oldIndex, newIndex) {
                               todoProvider.reorderTodos(
                                 bucket: TodoBucket.pending,
@@ -311,8 +457,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           _completedExpanded = !_completedExpanded;
                         });
                       },
-                      manageMode: _manageMode,
-                      onReorder: _manageMode
+                      batchMode: _batchMode,
+                      onReorder: _batchMode
                           ? (oldIndex, newIndex) {
                               todoProvider.reorderTodos(
                                 bucket: TodoBucket.completed,
@@ -367,15 +513,53 @@ class _SearchEmptyState extends StatelessWidget {
   }
 }
 
+class _BatchModeTitle extends StatelessWidget {
+  const _BatchModeTitle({required this.selectedCount, super.key});
+
+  final int selectedCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 180),
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.05, 0),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: Text(
+          selectedCount == 0 ? 'Batch edit' : '$selectedCount selected',
+          key: ValueKey(selectedCount),
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ToolbarCircleButton extends StatelessWidget {
   const _ToolbarCircleButton({
     required this.tooltip,
     required this.onPressed,
     required this.icon,
+    super.key,
   });
 
   final String tooltip;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Widget icon;
 
   @override

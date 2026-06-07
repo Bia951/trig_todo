@@ -72,7 +72,7 @@ class TodoProvider extends ChangeNotifier {
   Todo createDraft({DateTime? reference}) {
     final now = reference ?? DateTime.now();
     final reminder = now.add(const Duration(hours: 1));
-    final deadline = now.add(const Duration(days: 1, hours: 6));
+    final deadline = now.add(const Duration(days: 1));
 
     return Todo(
       id: now.microsecondsSinceEpoch.toString(),
@@ -152,6 +152,24 @@ class TodoProvider extends ChangeNotifier {
     unawaited(_persistDelete(id));
   }
 
+  void removeTodos(Iterable<String> ids) {
+    final idsToRemove = ids.toSet();
+    if (idsToRemove.isEmpty) {
+      return;
+    }
+
+    final beforeCount = _todos.length;
+    _todos.removeWhere((todo) => idsToRemove.contains(todo.id));
+    if (_todos.length == beforeCount) {
+      return;
+    }
+
+    notifyListeners();
+    for (final id in idsToRemove) {
+      unawaited(_persistDelete(id));
+    }
+  }
+
   void toggleMute(String id) {
     final index = _todos.indexWhere((todo) => todo.id == id);
     if (index == -1) {
@@ -183,6 +201,41 @@ class TodoProvider extends ChangeNotifier {
     _sortTodos();
     notifyListeners();
     unawaited(_persistUpsert(updated));
+  }
+
+  void completeTodos(Iterable<String> ids) {
+    final idsToComplete = ids.toSet();
+    if (idsToComplete.isEmpty) {
+      return;
+    }
+
+    final updatedTodos = <Todo>[];
+    for (var index = 0; index < _todos.length; index++) {
+      final current = _todos[index];
+      if (!idsToComplete.contains(current.id) || current.isCompleted) {
+        continue;
+      }
+
+      final updated = current.copyWith(
+        isCompleted: true,
+        sortOrder: _nextSortOrder(
+          TodoBucket.completed,
+          excludingId: current.id,
+        ),
+      );
+      _todos[index] = updated;
+      updatedTodos.add(updated);
+    }
+
+    if (updatedTodos.isEmpty) {
+      return;
+    }
+
+    _sortTodos();
+    notifyListeners();
+    for (final todo in updatedTodos) {
+      unawaited(_persistUpsert(todo));
+    }
   }
 
   void toggleStarred(String id) {

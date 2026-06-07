@@ -5,49 +5,28 @@ import '../models/todo.dart';
 class TodoTile extends StatelessWidget {
   const TodoTile({
     required this.todo,
-    required this.manageMode,
-    required this.detailBuilder,
-    required this.onRequestDelete,
+    required this.batchMode,
+    required this.isSelected,
+    required this.onOpenPreview,
+    required this.onOpenEdit,
+    required this.onToggleSelected,
+    required this.onToggleMute,
     required this.onToggleCompleted,
     required this.onToggleStarred,
     super.key,
   });
 
+  static const Duration _animationDuration = Duration(milliseconds: 240);
+
   final Todo todo;
-  final bool manageMode;
-  final Widget Function(BuildContext context, VoidCallback closeContainer)
-  detailBuilder;
-  final VoidCallback onRequestDelete;
+  final bool batchMode;
+  final bool isSelected;
+  final VoidCallback onOpenPreview;
+  final VoidCallback onOpenEdit;
+  final VoidCallback onToggleSelected;
+  final VoidCallback onToggleMute;
   final VoidCallback onToggleCompleted;
   final VoidCallback onToggleStarred;
-
-  Future<void> _showDetailCard(BuildContext context) {
-    return Navigator.of(context).push(
-      PageRouteBuilder<void>(
-        opaque: false,
-        transitionDuration: const Duration(milliseconds: 320),
-        reverseTransitionDuration: const Duration(milliseconds: 220),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return detailBuilder(context, () => Navigator.of(context).maybePop());
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curvedAnimation = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          );
-          return FadeTransition(
-            opacity: curvedAnimation,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.97, end: 1).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-              ),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,81 +38,149 @@ class TodoTile extends StatelessWidget {
     );
     final hasTitle = todo.hasTitle;
     final titleText = todo.presentationTitle;
+    final selectionColor = isSelected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
 
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
-      child: InkWell(
-        onLongPress: manageMode ? null : () => _showDetailCard(context),
+    return AnimatedContainer(
+      duration: _animationDuration,
+      curve: Curves.easeOutCubic,
+      decoration: BoxDecoration(
+        color: isSelected
+            ? Color.alphaBlend(
+                theme.colorScheme.primary.withValues(alpha: 0.12),
+                theme.colorScheme.surfaceContainerLow,
+              )
+            : theme.colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(26),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 74,
-                child: Text(
-                  reminderTime,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  titleText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: hasTitle
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant,
-                    decoration: todo.isCompleted
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              if (manageMode)
+        border: Border.all(
+          color: isSelected
+              ? theme.colorScheme.primary.withValues(alpha: 0.32)
+              : Colors.transparent,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(26),
+        child: InkWell(
+          onTap: batchMode ? onToggleSelected : onOpenPreview,
+          onLongPress: batchMode ? null : onOpenEdit,
+          borderRadius: BorderRadius.circular(26),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+            child: Row(
+              children: [
                 _CircleIconButton(
-                  tooltip: 'Delete todo',
-                  onPressed: onRequestDelete,
+                  tooltip: todo.isMuted ? 'Unmute reminder' : 'Mute reminder',
+                  onPressed: onToggleMute,
                   icon: Icon(
-                    Icons.delete_outline_rounded,
+                    todo.isMuted
+                        ? Icons.notifications_off_outlined
+                        : Icons.notifications_none_rounded,
                     size: 18,
-                    color: theme.colorScheme.onSurfaceVariant,
+                    color: todo.isMuted
+                        ? theme.colorScheme.onSurfaceVariant
+                        : theme.colorScheme.primary,
                   ),
                 ),
-              if (manageMode) const SizedBox(width: 4),
-              _CircleIconButton(
-                tooltip: todo.isStarred ? 'Remove star' : 'Star todo',
-                onPressed: onToggleStarred,
-                icon: Icon(
-                  todo.isStarred
-                      ? Icons.star_rounded
-                      : Icons.star_border_rounded,
-                  size: 18,
-                  color: todo.isStarred
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
+                AnimatedContainer(
+                  duration: _animationDuration,
+                  curve: Curves.easeOutCubic,
+                  width: batchMode ? 14 : 10,
                 ),
-              ),
-              const SizedBox(width: 4),
-              _CircleIconButton(
-                tooltip: todo.isCompleted ? 'Mark as pending' : 'Complete todo',
-                onPressed: onToggleCompleted,
-                icon: Icon(
-                  todo.isCompleted ? Icons.check_circle : Icons.circle_outlined,
-                  size: 18,
-                  color: todo.isCompleted
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
+                Expanded(
+                  child: AnimatedSlide(
+                    duration: _animationDuration,
+                    curve: Curves.easeOutCubic,
+                    offset: batchMode ? const Offset(0.04, 0) : Offset.zero,
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 74,
+                          child: Text(
+                            reminderTime,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            titleText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: hasTitle
+                                  ? theme.colorScheme.onSurface
+                                  : theme.colorScheme.onSurfaceVariant,
+                              decoration: todo.isCompleted
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        _CircleIconButton(
+                          tooltip: todo.isStarred ? 'Remove star' : 'Star todo',
+                          onPressed: onToggleStarred,
+                          icon: Icon(
+                            todo.isStarred
+                                ? Icons.star_rounded
+                                : Icons.star_border_rounded,
+                            size: 18,
+                            color: todo.isStarred
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                AnimatedSwitcher(
+                  duration: _animationDuration,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    );
+                  },
+                  child: batchMode
+                      ? _CircleIconButton(
+                          key: const ValueKey('selection'),
+                          tooltip: isSelected ? 'Unselect todo' : 'Select todo',
+                          onPressed: onToggleSelected,
+                          icon: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            size: 18,
+                            color: selectionColor,
+                          ),
+                        )
+                      : _CircleIconButton(
+                          key: const ValueKey('complete'),
+                          tooltip: todo.isCompleted
+                              ? 'Mark as pending'
+                              : 'Complete todo',
+                          onPressed: onToggleCompleted,
+                          icon: Icon(
+                            todo.isCompleted
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            size: 18,
+                            color: todo.isCompleted
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -146,6 +193,7 @@ class _CircleIconButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     required this.icon,
+    super.key,
   });
 
   final String tooltip;

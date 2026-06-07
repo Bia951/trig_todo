@@ -11,7 +11,7 @@ class TodoSectionPanel extends StatelessWidget {
     required this.emptyLabel,
     required this.tileBuilder,
     this.onReorder,
-    this.manageMode = false,
+    this.batchMode = false,
     super.key,
   });
 
@@ -22,7 +22,7 @@ class TodoSectionPanel extends StatelessWidget {
   final String emptyLabel;
   final Widget Function(BuildContext context, Todo todo) tileBuilder;
   final ReorderCallback? onReorder;
-  final bool manageMode;
+  final bool batchMode;
 
   @override
   Widget build(BuildContext context) {
@@ -102,7 +102,7 @@ class TodoSectionPanel extends StatelessWidget {
                         ),
                       ),
                     )
-                  : manageMode && onReorder != null
+                  : batchMode && onReorder != null
                   ? ReorderableListView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
