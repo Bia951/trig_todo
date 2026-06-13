@@ -59,4 +59,15 @@ class IsarTodoRepository extends TodoRepository {
       await _isar.todoRecords.putByIndex('todoId', record);
     });
   }
+
+  @override
+  Future<void> replaceAll(Iterable<Todo> todos) async {
+    final records = todos
+        .map(TodoRecord.fromTodo)
+        .toList(growable: false);
+    await _isar.writeTxn(() async {
+      await _isar.todoRecords.clear();
+      await _isar.todoRecords.putAllByIndex('todoId', records);
+    });
+  }
 }

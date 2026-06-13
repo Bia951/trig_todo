@@ -29,7 +29,7 @@ class TodoCardPage extends StatefulWidget {
 class _TodoCardPageState extends State<TodoCardPage> {
   late Todo _draft;
   late bool _isEditing;
-  late bool _isNew;
+  late bool _isDraft;
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
   late final TextEditingController _notesController;
@@ -39,7 +39,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
     super.initState();
     _draft = widget.initialTodo;
     _isEditing = widget.startInEditMode;
-    _isNew = widget.closeOnSave;
+    _isDraft = widget.closeOnSave;
     _titleController = TextEditingController(text: _draft.title);
     _contentController = TextEditingController(text: _draft.content);
     _notesController = TextEditingController(text: _draft.notes);
@@ -53,66 +53,27 @@ class _TodoCardPageState extends State<TodoCardPage> {
     super.dispose();
   }
 
-  Future<void> _pickReminderDateTime() async {
+  Future<void> _pickDateTime({
+    required DateTime current,
+    required Todo Function(DateTime) updater,
+  }) async {
     final date = await showDatePicker(
       context: context,
-      initialDate: _draft.reminderTime,
+      initialDate: current,
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
     );
-    if (!mounted || date == null) {
-      return;
-    }
+    if (!mounted || date == null) return;
 
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_draft.reminderTime),
+      initialTime: TimeOfDay.fromDateTime(current),
     );
-    if (!mounted || time == null) {
-      return;
-    }
+    if (!mounted || time == null) return;
 
     setState(() {
-      _draft = _draft.copyWith(
-        reminderTime: DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time.hour,
-          time.minute,
-        ),
-      );
-    });
-  }
-
-  Future<void> _pickDeadlineDateTime() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: _draft.deadline,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (!mounted || date == null) {
-      return;
-    }
-
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(_draft.deadline),
-    );
-    if (!mounted || time == null) {
-      return;
-    }
-
-    setState(() {
-      _draft = _draft.copyWith(
-        deadline: DateTime(
-          date.year,
-          date.month,
-          date.day,
-          time.hour,
-          time.minute,
-        ),
+      _draft = updater(
+        DateTime(date.year, date.month, date.day, time.hour, time.minute),
       );
     });
   }
@@ -122,7 +83,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
       _draft = _draft.copyWith(isMuted: !_draft.isMuted);
     });
 
-    if (_isNew) {
+    if (_isDraft) {
       return;
     }
 
@@ -156,7 +117,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
     setState(() {
       _draft = updatedTodo;
       _isEditing = false;
-      _isNew = false;
+      _isDraft = false;
     });
 
     if (widget.closeOnSave) {
@@ -165,13 +126,27 @@ class _TodoCardPageState extends State<TodoCardPage> {
   }
 
   void _delete() {
-    if (_isNew) {
+    if (_isDraft) {
       _close();
       return;
     }
 
-    context.read<TodoProvider>().removeTodo(_draft.id);
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<TodoProvider>();
+    final removed = provider.removeTodo(_draft.id);
     _close();
+    if (removed.isNotEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${removed.first.presentationTitle}"'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => provider.restoreTodos(removed),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _dismissKeyboard() {
@@ -290,7 +265,12 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                               context,
                                               _draft.reminderTime,
                                             ),
-                                            onPressed: _pickReminderDateTime,
+                                            onPressed: () => _pickDateTime(
+                                              current: _draft.reminderTime,
+                                              updater: (dt) => _draft.copyWith(
+                                                reminderTime: dt,
+                                              ),
+                                            ),
                                           ),
                                           const SizedBox(height: 12),
                                           _EditableMetaTile(
@@ -300,57 +280,11 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                               context,
                                               _draft.deadline,
                                             ),
-                                            onPressed: _pickDeadlineDateTime,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _EditableMetaTile(
-                                            icon:
-                                                _draft.remindDaysBeforeDDL == 0
-                                                ? Icons
-                                                      .notifications_none_rounded
-                                                : Icons.notifications_rounded,
-                                            label: 'Days before DDL alert',
-                                            value:
-                                                _draft.remindDaysBeforeDDL == 0
-                                                ? 'Off'
-                                                : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
-                                            onPressed: () {
-                                              showDialog<int>(
-                                                context: context,
-                                                builder: (ctx) => SimpleDialog(
-                                                  title: const Text(
-                                                    'Days before deadline',
-                                                  ),
-                                                  children:
-                                                      [0, 1, 2, 3, 7, 14, 30]
-                                                          .map(
-                                                            (d) =>
-                                                                SimpleDialogOption(
-                                                                  onPressed: () =>
-                                                                      Navigator.pop(
-                                                                        ctx,
-                                                                        d,
-                                                                      ),
-                                                                  child: Text(
-                                                                    d == 0
-                                                                        ? 'Off'
-                                                                        : '$d day${d == 1 ? '' : 's'} before',
-                                                                  ),
-                                                                ),
-                                                          )
-                                                          .toList(),
-                                                ),
-                                              ).then((value) {
-                                                if (value != null && mounted) {
-                                                  setState(() {
-                                                    _draft = _draft.copyWith(
-                                                      remindDaysBeforeDDL:
-                                                          value,
-                                                    );
-                                                  });
-                                                }
-                                              });
-                                            },
+                                            onPressed: () => _pickDateTime(
+                                              current: _draft.deadline,
+                                              updater: (dt) =>
+                                                  _draft.copyWith(deadline: dt),
+                                            ),
                                           ),
                                           const SizedBox(height: 16),
                                         ] else ...[
@@ -450,7 +384,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                 ),
                                 _CardFooter(
                                   isEditing: _isEditing,
-                                  isNew: _isNew,
+                                  isNew: _isDraft,
                                   onBackPressed: _close,
                                   onDeletePressed: _delete,
                                   onSavePressed: _save,

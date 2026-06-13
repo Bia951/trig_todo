@@ -194,10 +194,26 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    provider.removeTodos(selectedTodos.map((todo) => todo.id));
+    final removed = provider.removeTodos(selectedTodos.map((todo) => todo.id));
     setState(() {
       _selectedTodoIds.clear();
     });
+    if (removed.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            removed.length == 1
+                ? 'Deleted "${removed.single.presentationTitle}"'
+                : 'Deleted ${removed.length} todos',
+          ),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () => provider.restoreTodos(removed),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _completeSelectedTodos() {

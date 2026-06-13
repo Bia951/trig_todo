@@ -146,27 +146,42 @@ class TodoProvider extends ChangeNotifier {
     addTodo(todo);
   }
 
-  void removeTodo(String id) {
+  List<Todo> removeTodo(String id) {
+    final removed = _todos
+        .where((todo) => todo.id == id)
+        .toList(growable: false);
+    if (removed.isEmpty) return removed;
     _todos.removeWhere((todo) => todo.id == id);
     notifyListeners();
     unawaited(_persistDelete(id));
+    return removed;
   }
 
-  void removeTodos(Iterable<String> ids) {
+  List<Todo> removeTodos(Iterable<String> ids) {
     final idsToRemove = ids.toSet();
-    if (idsToRemove.isEmpty) {
-      return;
-    }
+    if (idsToRemove.isEmpty) return const [];
 
-    final beforeCount = _todos.length;
+    final removed = _todos
+        .where((todo) => idsToRemove.contains(todo.id))
+        .toList(growable: false);
+    if (removed.isEmpty) return removed;
+
     _todos.removeWhere((todo) => idsToRemove.contains(todo.id));
-    if (_todos.length == beforeCount) {
-      return;
-    }
-
     notifyListeners();
     for (final id in idsToRemove) {
       unawaited(_persistDelete(id));
+    }
+    return removed;
+  }
+
+  void restoreTodos(Iterable<Todo> todos) {
+    final toRestore = todos.toList(growable: false);
+    if (toRestore.isEmpty) return;
+    _todos.addAll(toRestore);
+    _sortTodos();
+    notifyListeners();
+    for (final todo in toRestore) {
+      unawaited(_persistUpsert(todo));
     }
   }
 
