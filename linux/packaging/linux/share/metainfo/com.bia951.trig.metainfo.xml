@@ -5,11 +5,18 @@
   <summary>Track tasks with reminders, deadlines, and notes</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
-  <developer_name>Bia</developer_name>
+  <developer>
+    <name>Bia</name>
+  </developer>
   <launchable type="desktop-id">com.bia951.trig.desktop</launchable>
   <provides>
     <binary>trig</binary>
   </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Office</category>
+  </categories>
+  <content_rating type="oars-1.1" />
   <description>
     <p>Trig is a focused task manager for capturing todos, reminder times, deadlines, and supporting notes in one place.</p>
     <p>Use it to keep important items visible, separate completed work from active tasks, and search across titles, notes, and scheduled times.</p>
