@@ -70,29 +70,62 @@ class TodoTile extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
             child: Row(
               children: [
-                _CircleIconButton(
-                  tooltip: todo.isMuted ? 'Unmute reminder' : 'Mute reminder',
-                  onPressed: onToggleMute,
-                  icon: Icon(
-                    todo.isMuted
-                        ? Icons.notifications_off_outlined
-                        : Icons.notifications_none_rounded,
-                    size: 18,
-                    color: todo.isMuted
-                        ? theme.colorScheme.onSurfaceVariant
-                        : theme.colorScheme.primary,
-                  ),
+                AnimatedSwitcher(
+                  duration: _animationDuration,
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(-0.35, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: ScaleTransition(scale: animation, child: child),
+                      ),
+                    );
+                  },
+                  child: batchMode
+                      ? _CircleIconButton(
+                          key: const ValueKey('batch-selection'),
+                          tooltip: isSelected ? 'Unselect todo' : 'Select todo',
+                          onPressed: onToggleSelected,
+                          icon: Icon(
+                            isSelected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                            size: 18,
+                            color: selectionColor,
+                          ),
+                        )
+                      : _CircleIconButton(
+                          key: const ValueKey('reminder'),
+                          tooltip: todo.isMuted
+                              ? 'Unmute reminder'
+                              : 'Mute reminder',
+                          onPressed: onToggleMute,
+                          icon: Icon(
+                            todo.isMuted
+                                ? Icons.notifications_off_outlined
+                                : Icons.notifications_rounded,
+                            size: 18,
+                            color: todo.isMuted
+                                ? theme.colorScheme.onSurfaceVariant
+                                : theme.colorScheme.primary,
+                          ),
+                        ),
                 ),
                 AnimatedContainer(
                   duration: _animationDuration,
                   curve: Curves.easeOutCubic,
-                  width: batchMode ? 14 : 10,
+                  width: batchMode ? 18 : 10,
                 ),
                 Expanded(
                   child: AnimatedSlide(
                     duration: _animationDuration,
                     curve: Curves.easeOutCubic,
-                    offset: batchMode ? const Offset(0.04, 0) : Offset.zero,
+                    offset: batchMode ? const Offset(0.02, 0) : Offset.zero,
                     child: Row(
                       children: [
                         SizedBox(
@@ -121,49 +154,45 @@ class TodoTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        _CircleIconButton(
-                          tooltip: todo.isStarred ? 'Remove star' : 'Star todo',
-                          onPressed: onToggleStarred,
-                          icon: Icon(
-                            todo.isStarred
-                                ? Icons.star_rounded
-                                : Icons.star_border_rounded,
-                            size: 18,
-                            color: todo.isStarred
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.onSurfaceVariant,
-                          ),
+                        AnimatedSize(
+                          duration: _animationDuration,
+                          curve: Curves.easeOutCubic,
+                          child: batchMode
+                              ? const SizedBox.shrink()
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(width: 10),
+                                    _CircleIconButton(
+                                      tooltip: todo.isStarred
+                                          ? 'Remove star'
+                                          : 'Star todo',
+                                      onPressed: onToggleStarred,
+                                      icon: Icon(
+                                        todo.isStarred
+                                            ? Icons.star_rounded
+                                            : Icons.star_border_rounded,
+                                        size: 18,
+                                        color: todo.isStarred
+                                            ? theme.colorScheme.primary
+                                            : theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                         ),
                       ],
                     ),
                   ),
                 ),
-                AnimatedSwitcher(
+                AnimatedSize(
                   duration: _animationDuration,
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: ScaleTransition(scale: animation, child: child),
-                    );
-                  },
+                  curve: Curves.easeOutCubic,
                   child: batchMode
-                      ? _CircleIconButton(
-                          key: const ValueKey('selection'),
-                          tooltip: isSelected ? 'Unselect todo' : 'Select todo',
-                          onPressed: onToggleSelected,
-                          icon: Icon(
-                            isSelected
-                                ? Icons.check_circle
-                                : Icons.circle_outlined,
-                            size: 18,
-                            color: selectionColor,
-                          ),
-                        )
+                      ? const SizedBox.shrink()
                       : _CircleIconButton(
-                          key: const ValueKey('complete'),
                           tooltip: todo.isCompleted
                               ? 'Mark as pending'
                               : 'Complete todo',

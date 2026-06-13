@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -199,239 +201,261 @@ class _TodoCardPageState extends State<TodoCardPage> {
               onTap: _close,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final maxCardHeight = constraints.maxHeight;
+                  final maxCardHeight = math.max(0.0, constraints.maxHeight);
 
                   return Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 760),
                       child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         onTap: _dismissKeyboard,
                         child: Card(
+                          clipBehavior: Clip.antiAlias,
                           child: ConstrainedBox(
                             constraints: BoxConstraints(
                               maxHeight: maxCardHeight,
                             ),
-                            child: SingleChildScrollView(
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              padding: const EdgeInsets.fromLTRB(
-                                24,
-                                18,
-                                24,
-                                24,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _CardHeader(
-                                    isMuted: _draft.isMuted,
-                                    title: _isEditing
-                                        ? (_titleController.text.trim().isEmpty
-                                              ? 'Todo'
-                                              : _titleController.text.trim())
-                                        : _draft.presentationTitle,
-                                    onMutePressed: _toggleMute,
-                                    onEditPressed: _enterEditMode,
-                                  ),
-                                  const SizedBox(height: 20),
-                                  if (_isEditing) ...[
-                                    TextField(
-                                      controller: _titleController,
-                                      onChanged: (_) => setState(() {}),
-                                      onTapOutside: (_) => _dismissKeyboard(),
-                                      textInputAction: TextInputAction.next,
-                                      decoration: const InputDecoration(
-                                        hintText: 'Untitled todo',
-                                      ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Flexible(
+                                  child: SingleChildScrollView(
+                                    keyboardDismissBehavior:
+                                        ScrollViewKeyboardDismissBehavior.onDrag,
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      18,
+                                      24,
+                                      20,
                                     ),
-                                    const SizedBox(height: 16),
-                                    TextField(
-                                      controller: _contentController,
-                                      onTapOutside: (_) => _dismissKeyboard(),
-                                      minLines: 3,
-                                      maxLines: 5,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Content',
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    TextField(
-                                      controller: _notesController,
-                                      onTapOutside: (_) => _dismissKeyboard(),
-                                      minLines: 2,
-                                      maxLines: 4,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Notes',
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    _EditableMetaTile(
-                                      icon: Icons.schedule,
-                                      label: 'Reminder time',
-                                      value: _formatDateTime(
-                                        context,
-                                        _draft.reminderTime,
-                                      ),
-                                      onPressed: _pickReminderDateTime,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _EditableMetaTile(
-                                      icon: Icons.event,
-                                      label: 'Deadline',
-                                      value: _formatDateTime(
-                                        context,
-                                        _draft.deadline,
-                                      ),
-                                      onPressed: _pickDeadlineDateTime,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _EditableMetaTile(
-                                      icon: Icons.notifications_none_rounded,
-                                      label: 'Days before DDL alert',
-                                      value: _draft.remindDaysBeforeDDL == 0
-                                          ? 'Off'
-                                          : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
-                                      onPressed: () {
-                                        showDialog<int>(
-                                          context: context,
-                                          builder: (ctx) => SimpleDialog(
-                                            title: const Text(
-                                              'Days before deadline',
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _CardHeader(
+                                          isMuted: _draft.isMuted,
+                                          title: _isEditing
+                                              ? (_titleController.text
+                                                    .trim()
+                                                    .isEmpty
+                                                    ? 'Todo'
+                                                    : _titleController.text
+                                                          .trim())
+                                              : _draft.presentationTitle,
+                                          onMutePressed: _toggleMute,
+                                          onEditPressed: _enterEditMode,
+                                          onClosePressed: _close,
+                                        ),
+                                        const SizedBox(height: 20),
+                                        if (_isEditing) ...[
+                                          TextField(
+                                            controller: _titleController,
+                                            onChanged: (_) => setState(() {}),
+                                            onTapOutside: (_) =>
+                                                _dismissKeyboard(),
+                                            textInputAction:
+                                                TextInputAction.next,
+                                            decoration: const InputDecoration(
+                                              hintText: 'Untitled todo',
                                             ),
-                                            children: [0, 1, 2, 3, 7, 14, 30]
-                                                .map(
-                                                  (d) => SimpleDialogOption(
-                                                    onPressed: () =>
-                                                        Navigator.pop(ctx, d),
-                                                    child: Text(
-                                                      d == 0
-                                                          ? 'Off'
-                                                          : '$d day${d == 1 ? '' : 's'} before',
-                                                    ),
-                                                  ),
-                                                )
-                                                .toList(),
                                           ),
-                                        ).then((value) {
-                                          if (value != null && mounted) {
-                                            setState(() {
-                                              _draft = _draft.copyWith(
-                                                remindDaysBeforeDDL: value,
-                                              );
-                                            });
-                                          }
-                                        });
-                                      },
-                                    ),
-                                    const SizedBox(height: 16),
-                                  ] else ...[
-                                    _ReadOnlySection(
-                                      label: 'Content',
-                                      value: _draft.content,
-                                      icon: Icons.subject,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ReadOnlySection(
-                                      label: 'Notes',
-                                      value: _draft.notes,
-                                      icon: Icons.sticky_note_2_outlined,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ReadOnlySection(
-                                      label: 'Reminder time',
-                                      value: _formatDateTime(
-                                        context,
-                                        _draft.reminderTime,
-                                      ),
-                                      icon: Icons.schedule,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ReadOnlySection(
-                                      label: 'Deadline',
-                                      value: _formatDateTime(
-                                        context,
-                                        _draft.deadline,
-                                      ),
-                                      icon: Icons.event,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ReadOnlySection(
-                                      label: 'Days before DDL alert',
-                                      value: _draft.remindDaysBeforeDDL == 0
-                                          ? 'Off'
-                                          : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
-                                      icon: Icons.notifications_none_rounded,
-                                    ),
-                                    const SizedBox(height: 12),
-                                    _ReadOnlySection(
-                                      label: 'Muted',
-                                      value: _draft.isMuted
-                                          ? 'Muted'
-                                          : 'Active',
-                                      icon: _draft.isMuted
-                                          ? Icons.notifications_off_outlined
-                                          : Icons.notifications_none_rounded,
-                                    ),
-                                  ],
-                                  AnimatedSwitcher(
-                                    duration: const Duration(milliseconds: 240),
-                                    switchInCurve: Curves.easeOutCubic,
-                                    switchOutCurve: Curves.easeInCubic,
-                                    transitionBuilder: (child, animation) {
-                                      return SizeTransition(
-                                        sizeFactor: animation,
-                                        axisAlignment: -1,
-                                        child: child,
-                                      );
-                                    },
-                                    child: _isEditing
-                                        ? _ReminderLeadSlider(
-                                            key: const ValueKey('lead-slider'),
-                                            value: _draft.remindDaysBeforeDDL,
-                                            onChanged: (value) {
-                                              setState(() {
-                                                _draft = _draft.copyWith(
-                                                  remindDaysBeforeDDL: value,
-                                                );
+                                          const SizedBox(height: 16),
+                                          TextField(
+                                            controller: _contentController,
+                                            onTapOutside: (_) =>
+                                                _dismissKeyboard(),
+                                            minLines: 3,
+                                            maxLines: 5,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Content',
+                                            ),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          TextField(
+                                            controller: _notesController,
+                                            onTapOutside: (_) =>
+                                                _dismissKeyboard(),
+                                            minLines: 2,
+                                            maxLines: 4,
+                                            decoration: const InputDecoration(
+                                              labelText: 'Notes',
+                                            ),
+                                          ),
+                                          const SizedBox(height: 16),
+                                          _EditableMetaTile(
+                                            icon: Icons.schedule,
+                                            label: 'Reminder time',
+                                            value: _formatDateTime(
+                                              context,
+                                              _draft.reminderTime,
+                                            ),
+                                            onPressed: _pickReminderDateTime,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _EditableMetaTile(
+                                            icon: Icons.event,
+                                            label: 'Deadline',
+                                            value: _formatDateTime(
+                                              context,
+                                              _draft.deadline,
+                                            ),
+                                            onPressed: _pickDeadlineDateTime,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _EditableMetaTile(
+                                            icon:
+                                                _draft.remindDaysBeforeDDL == 0
+                                                ? Icons
+                                                      .notifications_none_rounded
+                                                : Icons.notifications_rounded,
+                                            label: 'Days before DDL alert',
+                                            value:
+                                                _draft.remindDaysBeforeDDL == 0
+                                                ? 'Off'
+                                                : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                            onPressed: () {
+                                              showDialog<int>(
+                                                context: context,
+                                                builder: (ctx) => SimpleDialog(
+                                                  title: const Text(
+                                                    'Days before deadline',
+                                                  ),
+                                                  children:
+                                                      [0, 1, 2, 3, 7, 14, 30]
+                                                          .map(
+                                                            (d) =>
+                                                                SimpleDialogOption(
+                                                                  onPressed: () =>
+                                                                      Navigator.pop(
+                                                                        ctx,
+                                                                        d,
+                                                                      ),
+                                                                  child: Text(
+                                                                    d == 0
+                                                                        ? 'Off'
+                                                                        : '$d day${d == 1 ? '' : 's'} before',
+                                                                  ),
+                                                                ),
+                                                          )
+                                                          .toList(),
+                                                ),
+                                              ).then((value) {
+                                                if (value != null && mounted) {
+                                                  setState(() {
+                                                    _draft = _draft.copyWith(
+                                                      remindDaysBeforeDDL:
+                                                          value,
+                                                    );
+                                                  });
+                                                }
                                               });
                                             },
-                                          )
-                                        : const SizedBox.shrink(
-                                            key: ValueKey('slider-hidden'),
                                           ),
-                                  ),
-                                  const SizedBox(height: 20),
-                                  Row(
-                                    children: [
-                                      if (_isEditing)
-                                        FilledButton.tonalIcon(
-                                          onPressed: _delete,
-                                          icon: const Icon(
-                                            Icons.delete_outline,
+                                          const SizedBox(height: 16),
+                                        ] else ...[
+                                          _ReadOnlySection(
+                                            label: 'Content',
+                                            value: _draft.content,
+                                            icon: Icons.subject,
                                           ),
-                                          label: Text(
-                                            _isNew ? 'Discard' : 'Delete',
+                                          const SizedBox(height: 12),
+                                          _ReadOnlySection(
+                                            label: 'Notes',
+                                            value: _draft.notes,
+                                            icon: Icons.sticky_note_2_outlined,
                                           ),
+                                          const SizedBox(height: 12),
+                                          _ReadOnlySection(
+                                            label: 'Reminder time',
+                                            value: _formatDateTime(
+                                              context,
+                                              _draft.reminderTime,
+                                            ),
+                                            icon: Icons.schedule,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _ReadOnlySection(
+                                            label: 'Deadline',
+                                            value: _formatDateTime(
+                                              context,
+                                              _draft.deadline,
+                                            ),
+                                            icon: Icons.event,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _ReadOnlySection(
+                                            label: 'Days before DDL alert',
+                                            value:
+                                                _draft.remindDaysBeforeDDL == 0
+                                                ? 'Off'
+                                                : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                            icon:
+                                                _draft.remindDaysBeforeDDL == 0
+                                                ? Icons
+                                                      .notifications_none_rounded
+                                                : Icons.notifications_rounded,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          _ReadOnlySection(
+                                            label: 'Muted',
+                                            value: _draft.isMuted
+                                                ? 'Muted'
+                                                : 'Active',
+                                            icon: _draft.isMuted
+                                                ? Icons
+                                                      .notifications_off_outlined
+                                                : Icons.notifications_rounded,
+                                          ),
+                                        ],
+                                        AnimatedSwitcher(
+                                          duration: const Duration(
+                                            milliseconds: 240,
+                                          ),
+                                          switchInCurve: Curves.easeOutCubic,
+                                          switchOutCurve: Curves.easeInCubic,
+                                          transitionBuilder:
+                                              (child, animation) {
+                                                return SizeTransition(
+                                                  sizeFactor: animation,
+                                                  axisAlignment: -1,
+                                                  child: child,
+                                                );
+                                              },
+                                          child: _isEditing
+                                              ? _ReminderLeadSlider(
+                                                  key: const ValueKey(
+                                                    'lead-slider',
+                                                  ),
+                                                  value: _draft
+                                                      .remindDaysBeforeDDL,
+                                                  onChanged: (value) {
+                                                    setState(() {
+                                                      _draft = _draft.copyWith(
+                                                        remindDaysBeforeDDL:
+                                                            value,
+                                                      );
+                                                    });
+                                                  },
+                                                )
+                                              : const SizedBox.shrink(
+                                                  key: ValueKey(
+                                                    'slider-hidden',
+                                                  ),
+                                                ),
                                         ),
-                                      const Spacer(),
-                                      if (_isEditing)
-                                        FilledButton.icon(
-                                          onPressed: _save,
-                                          icon: const Icon(Icons.check),
-                                          label: const Text('Save'),
-                                        )
-                                      else
-                                        FilledButton.tonalIcon(
-                                          onPressed: _close,
-                                          icon: const Icon(
-                                            Icons.keyboard_return,
-                                          ),
-                                          label: const Text('Back'),
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ],
-                              ),
+                                ),
+                                _CardFooter(
+                                  isEditing: _isEditing,
+                                  isNew: _isNew,
+                                  onBackPressed: _close,
+                                  onDeletePressed: _delete,
+                                  onSavePressed: _save,
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -446,7 +470,6 @@ class _TodoCardPageState extends State<TodoCardPage> {
       ),
     );
   }
-
   String _formatDateTime(BuildContext context, DateTime value) {
     final localizations = MaterialLocalizations.of(context);
     final date = localizations.formatMediumDate(value);
@@ -464,12 +487,14 @@ class _CardHeader extends StatelessWidget {
     required this.title,
     required this.onMutePressed,
     required this.onEditPressed,
+    required this.onClosePressed,
   });
 
   final bool isMuted;
   final String title;
   final VoidCallback onMutePressed;
   final VoidCallback onEditPressed;
+  final VoidCallback onClosePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -514,6 +539,15 @@ class _CardHeader extends StatelessWidget {
             style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w700,
             ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: IconButton.filledTonal(
+            onPressed: onClosePressed,
+            tooltip: 'Close',
+            style: _headerActionStyle(context),
+            icon: const Icon(Icons.close, size: 20),
           ),
         ),
       ],
@@ -633,6 +667,70 @@ class _ReadOnlySection extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CardFooter extends StatelessWidget {
+  const _CardFooter({
+    required this.isEditing,
+    required this.isNew,
+    required this.onBackPressed,
+    required this.onDeletePressed,
+    required this.onSavePressed,
+  });
+
+  final bool isEditing;
+  final bool isNew;
+  final VoidCallback onBackPressed;
+  final VoidCallback onDeletePressed;
+  final VoidCallback onSavePressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      child: isEditing
+          ? Container(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: theme.colorScheme.outlineVariant,
+                    width: 0.5,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: onBackPressed,
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: const Text('Back'),
+                  ),
+                  const Spacer(),
+                  if (!isNew) ...[
+                    TextButton.icon(
+                      onPressed: onDeletePressed,
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('Delete'),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  FilledButton.icon(
+                    onPressed: onSavePressed,
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Save'),
+                  ),
+                ],
+              ),
+            )
+          : const SizedBox.shrink(),
     );
   }
 }

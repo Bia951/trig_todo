@@ -272,7 +272,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Padding(
             padding: const EdgeInsets.only(left: 12),
             child: _ToolbarCircleButton(
-              tooltip: _batchMode ? 'Finish batch edit' : 'Batch edit',
+              tooltip: _batchMode ? 'Finish edit' : 'Edit',
               onPressed: _toggleBatchMode,
               icon: Icon(
                 Icons.edit_outlined,
@@ -539,7 +539,7 @@ class _BatchModeTitle extends StatelessWidget {
           );
         },
         child: Text(
-          selectedCount == 0 ? 'Batch edit' : '$selectedCount selected',
+          selectedCount == 0 ? 'Edit' : '$selectedCount selected',
           key: ValueKey(selectedCount),
           style: theme.textTheme.titleMedium?.copyWith(
             fontWeight: FontWeight.w800,
