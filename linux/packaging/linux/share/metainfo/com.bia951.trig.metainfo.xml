@@ -5,7 +5,7 @@
   <summary>Track tasks with reminders, deadlines, and notes</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
-  <developer>
+  <developer id="com.bia951">
     <name>Bia</name>
   </developer>
   <launchable type="desktop-id">com.bia951.trig.desktop</launchable>

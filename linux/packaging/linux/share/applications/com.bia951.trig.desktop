@@ -7,6 +7,6 @@ Comment=Track tasks with reminders, deadlines, and notes
 Exec=trig
 Icon=com.bia951.trig
 Terminal=false
-Categories=Office;Utility;
+Categories=Office;ProjectManagement;
 Keywords=todo;tasks;reminders;deadlines;notes;productivity;
 StartupNotify=true
