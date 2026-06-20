@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 import '../models/todo.dart';
+import '../models/todo_list.dart';
 import '../repositories/in_memory_todo_repository.dart';
+import '../repositories/todo_list_repository.dart';
+import '../repositories/todo_list_repository_factory.dart';
+import '../repositories/todo_list_repository_stub.dart';
 import '../repositories/todo_repository.dart';
 import '../repositories/todo_repository_factory.dart';
 import '../services/todo_reminder_scheduler.dart';
@@ -15,24 +19,33 @@ enum TodoBucket { important, pending, completed }
 class TodoProvider extends ChangeNotifier {
   TodoProvider({
     List<Todo>? initialTodos,
+    List<TodoList>? initialLists,
+    String? initialActiveListId,
     TodoRepository? repository,
+    TodoListRepository? listRepository,
     TodoReminderScheduler? reminderScheduler,
   }) : _repository =
            repository ??
            InMemoryTodoRepository(
-             initialTodos: initialTodos ?? _buildSeedTodos(),
+             initialTodos: initialTodos ?? [],
            ),
+       _listRepository = listRepository ?? InMemoryTodoListRepository(),
        _reminderScheduler = reminderScheduler ?? NoopTodoReminderScheduler(),
-       _todos = List<Todo>.from(initialTodos ?? _buildSeedTodos()) {
+       _todos = List<Todo>.from(initialTodos ?? []),
+       _lists = List<TodoList>.from(initialLists ?? []),
+       _activeListId = initialActiveListId ?? '' {
     _sortTodos();
+    _sortLists();
   }
 
   static Future<TodoProvider> bootstrap() async {
-    final repository = await createTodoRepository();
+    final todoRepository = await createTodoRepository();
+    final listRepository = await createTodoListRepository();
     final reminderScheduler = await createTodoReminderScheduler();
     final provider = TodoProvider(
       initialTodos: const <Todo>[],
-      repository: repository,
+      repository: todoRepository,
+      listRepository: listRepository,
       reminderScheduler: reminderScheduler,
     );
     await provider.hydrate();
@@ -40,59 +53,81 @@ class TodoProvider extends ChangeNotifier {
   }
 
   final TodoRepository _repository;
+  final TodoListRepository _listRepository;
   final TodoReminderScheduler _reminderScheduler;
   final List<Todo> _todos;
+  final List<TodoList> _lists;
+  String _activeListId;
   String _searchQuery = '';
+
+  // ── List accessors ──
+
+  UnmodifiableListView<TodoList> get lists => UnmodifiableListView(_lists);
+  String get activeListId => _activeListId;
+  TodoList? get activeList =>
+      _lists.cast<TodoList?>().firstWhere(
+        (l) => l?.id == _activeListId,
+        orElse: () => null,
+      );
+
+  int countForList(String listId) =>
+      _todos.where((t) => t.listId == listId && !t.isCompleted).length;
+
+  // ── Todo accessors (scoped to active list) ──
 
   UnmodifiableListView<Todo> get todos => UnmodifiableListView(_todos);
   String get searchQuery => _searchQuery;
   bool get hasImportantTodos =>
-      _todos.any((todo) => todo.isStarred && !todo.isCompleted);
+      _todos.any(
+        (todo) => todo.listId == _activeListId && todo.isStarred && !todo.isCompleted,
+      );
 
   List<Todo> get filteredTodos {
+    final listScoped = _todos.where((t) => t.listId == _activeListId);
     if (_searchQuery.trim().isEmpty) {
-      return List<Todo>.unmodifiable(_todos);
+      return List<Todo>.unmodifiable(listScoped);
     }
-
-    final normalizedQuery = _searchQuery.trim().toLowerCase();
+    final q = _searchQuery.trim().toLowerCase();
     return List<Todo>.unmodifiable(
-      _todos.where((todo) {
-        final searchableText = _buildSearchableText(todo);
-        return searchableText.contains(normalizedQuery);
-      }),
+      listScoped.where((todo) => _buildSearchableText(todo).contains(q)),
     );
   }
 
   List<Todo> get completedTodos => _todosForBucket(TodoBucket.completed);
-
   List<Todo> get importantTodos => _todosForBucket(TodoBucket.important);
-
   List<Todo> get pendingTodos => _todosForBucket(TodoBucket.pending);
 
-  Todo createDraft({DateTime? reference}) {
-    final now = reference ?? DateTime.now();
-    final reminder = now.add(const Duration(hours: 1));
-    final deadline = now.add(const Duration(days: 1));
-
-    return Todo(
-      id: now.microsecondsSinceEpoch.toString(),
-      title: '',
-      content: '',
-      reminderTime: reminder,
-      deadline: deadline,
-      remindDaysBeforeDDL: 1,
-      notes: '',
-      isMuted: false,
-      isCompleted: false,
-      isStarred: false,
-      sortOrder: _nextSortOrder(TodoBucket.pending),
-    );
-  }
+  // ── Hydrate ──
 
   Future<void> hydrate({bool seedIfEmpty = true}) async {
+    // Load lists first
+    final (:lists, :activeListId) = await _listRepository.load();
+    final effectiveLists = lists.isEmpty && seedIfEmpty
+        ? _buildSeedLists()
+        : lists;
+
+    _lists
+      ..clear()
+      ..addAll(effectiveLists);
+    _sortLists();
+
+    if (lists.isEmpty && seedIfEmpty) {
+      for (final l in _lists) {
+        unawaited(_listRepository.saveList(l));
+      }
+    }
+
+    final firstListId = _lists.isNotEmpty ? _lists.first.id : '';
+    _activeListId =
+        activeListId != null && _lists.any((l) => l.id == activeListId)
+        ? activeListId
+        : firstListId;
+    unawaited(_listRepository.saveActiveListId(_activeListId));
+
+    // Load todos
     final persistedTodos = await _repository.loadTodos();
     final effectiveTodos = persistedTodos.isEmpty && seedIfEmpty
-        ? _buildSeedTodos()
+        ? _buildSeedTodos(defaultListId: firstListId)
         : persistedTodos;
 
     _todos
@@ -108,13 +143,82 @@ class TodoProvider extends ChangeNotifier {
     await _reminderScheduler.syncTodos(_todos);
   }
 
-  void setSearchQuery(String value) {
-    if (_searchQuery == value) {
-      return;
-    }
+  // ── List management ──
 
+  void setActiveList(String id) {
+    if (_activeListId == id) return;
+    _activeListId = id;
+    _searchQuery = '';
+    notifyListeners();
+    unawaited(_listRepository.saveActiveListId(id));
+  }
+
+  void saveTodoList(TodoList list) {
+    final index = _lists.indexWhere((l) => l.id == list.id);
+    if (index == -1) {
+      _lists.add(list);
+    } else {
+      _lists[index] = list;
+    }
+    _sortLists();
+    notifyListeners();
+    unawaited(_listRepository.saveList(list));
+  }
+
+  void deleteTodoList(String id) {
+    _lists.removeWhere((l) => l.id == id);
+    if (_activeListId == id) {
+      _activeListId = _lists.isNotEmpty ? _lists.first.id : '';
+      unawaited(_listRepository.saveActiveListId(_activeListId));
+    }
+    notifyListeners();
+    unawaited(_listRepository.deleteList(id));
+  }
+
+  void reorderLists(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) newIndex -= 1;
+    final moved = _lists.removeAt(oldIndex);
+    _lists.insert(newIndex, moved);
+    for (var i = 0; i < _lists.length; i++) {
+      _lists[i] = _lists[i].copyWith(sortOrder: i);
+      unawaited(_listRepository.saveList(_lists[i]));
+    }
+    notifyListeners();
+  }
+
+  void moveTodoToList(String todoId, String targetListId) {
+    final index = _todos.indexWhere((t) => t.id == todoId);
+    if (index == -1) return;
+    final updated = _todos[index].copyWith(listId: targetListId);
+    _todos[index] = updated;
+    notifyListeners();
+    unawaited(_persistUpsert(updated));
+  }
+
+  // ── Todo management (unchanged logic, scoped to active list) ──
+
+  void setSearchQuery(String value) {
+    if (_searchQuery == value) return;
     _searchQuery = value;
     notifyListeners();
+  }
+
+  Todo createDraft({DateTime? reference}) {
+    final now = reference ?? DateTime.now();
+    return Todo(
+      id: now.microsecondsSinceEpoch.toString(),
+      listId: _activeListId,
+      title: '',
+      content: '',
+      reminderTime: now.add(const Duration(hours: 1)),
+      deadline: now.add(const Duration(days: 1)),
+      remindDaysBeforeDDL: 1,
+      notes: '',
+      isMuted: false,
+      isCompleted: false,
+      isStarred: false,
+      sortOrder: _nextSortOrder(TodoBucket.pending),
+    );
   }
 
   void addTodo(Todo todo) {
@@ -126,10 +230,7 @@ class TodoProvider extends ChangeNotifier {
 
   void updateTodo(Todo updatedTodo) {
     final index = _todos.indexWhere((todo) => todo.id == updatedTodo.id);
-    if (index == -1) {
-      return;
-    }
-
+    if (index == -1) return;
     _todos[index] = updatedTodo;
     _sortTodos();
     notifyListeners();
@@ -142,14 +243,11 @@ class TodoProvider extends ChangeNotifier {
       updateTodo(todo);
       return;
     }
-
     addTodo(todo);
   }
 
   List<Todo> removeTodo(String id) {
-    final removed = _todos
-        .where((todo) => todo.id == id)
-        .toList(growable: false);
+    final removed = _todos.where((todo) => todo.id == id).toList(growable: false);
     if (removed.isEmpty) return removed;
     _todos.removeWhere((todo) => todo.id == id);
     notifyListeners();
@@ -160,12 +258,10 @@ class TodoProvider extends ChangeNotifier {
   List<Todo> removeTodos(Iterable<String> ids) {
     final idsToRemove = ids.toSet();
     if (idsToRemove.isEmpty) return const [];
-
     final removed = _todos
         .where((todo) => idsToRemove.contains(todo.id))
         .toList(growable: false);
     if (removed.isEmpty) return removed;
-
     _todos.removeWhere((todo) => idsToRemove.contains(todo.id));
     notifyListeners();
     for (final id in idsToRemove) {
@@ -187,10 +283,7 @@ class TodoProvider extends ChangeNotifier {
 
   void toggleMute(String id) {
     final index = _todos.indexWhere((todo) => todo.id == id);
-    if (index == -1) {
-      return;
-    }
-
+    if (index == -1) return;
     final current = _todos[index].copyWith(isMuted: !_todos[index].isMuted);
     _todos[index] = current;
     notifyListeners();
@@ -199,10 +292,7 @@ class TodoProvider extends ChangeNotifier {
 
   void toggleCompleted(String id) {
     final index = _todos.indexWhere((todo) => todo.id == id);
-    if (index == -1) {
-      return;
-    }
-
+    if (index == -1) return;
     final current = _todos[index];
     final willComplete = !current.isCompleted;
     final targetBucket = willComplete
@@ -220,32 +310,19 @@ class TodoProvider extends ChangeNotifier {
 
   void completeTodos(Iterable<String> ids) {
     final idsToComplete = ids.toSet();
-    if (idsToComplete.isEmpty) {
-      return;
-    }
-
+    if (idsToComplete.isEmpty) return;
     final updatedTodos = <Todo>[];
     for (var index = 0; index < _todos.length; index++) {
       final current = _todos[index];
-      if (!idsToComplete.contains(current.id) || current.isCompleted) {
-        continue;
-      }
-
+      if (!idsToComplete.contains(current.id) || current.isCompleted) continue;
       final updated = current.copyWith(
         isCompleted: true,
-        sortOrder: _nextSortOrder(
-          TodoBucket.completed,
-          excludingId: current.id,
-        ),
+        sortOrder: _nextSortOrder(TodoBucket.completed, excludingId: current.id),
       );
       _todos[index] = updated;
       updatedTodos.add(updated);
     }
-
-    if (updatedTodos.isEmpty) {
-      return;
-    }
-
+    if (updatedTodos.isEmpty) return;
     _sortTodos();
     notifyListeners();
     for (final todo in updatedTodos) {
@@ -255,10 +332,7 @@ class TodoProvider extends ChangeNotifier {
 
   void toggleStarred(String id) {
     final index = _todos.indexWhere((todo) => todo.id == id);
-    if (index == -1) {
-      return;
-    }
-
+    if (index == -1) return;
     final current = _todos[index];
     final willStar = !current.isStarred;
     final targetBucket = current.isCompleted
@@ -282,24 +356,17 @@ class TodoProvider extends ChangeNotifier {
     required int newIndex,
   }) {
     final bucketTodos = _todosForBucket(bucket, includeSearch: false);
-    if (bucketTodos.isEmpty) {
-      return;
-    }
-
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
-    }
+    if (bucketTodos.isEmpty) return;
+    if (newIndex > oldIndex) newIndex -= 1;
     if (oldIndex < 0 ||
         oldIndex >= bucketTodos.length ||
         newIndex < 0 ||
         newIndex >= bucketTodos.length) {
       return;
     }
-
     final reordered = List<Todo>.from(bucketTodos);
     final moved = reordered.removeAt(oldIndex);
     reordered.insert(newIndex, moved);
-
     for (var index = 0; index < reordered.length; index++) {
       final updatedTodo = reordered[index].copyWith(sortOrder: index);
       final todoIndex = _todos.indexWhere((todo) => todo.id == updatedTodo.id);
@@ -308,7 +375,6 @@ class TodoProvider extends ChangeNotifier {
         unawaited(_persistUpsert(updatedTodo));
       }
     }
-
     _sortTodos();
     notifyListeners();
   }
@@ -316,9 +382,12 @@ class TodoProvider extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(_repository.close());
+    unawaited(_listRepository.close());
     unawaited(_reminderScheduler.dispose());
     super.dispose();
   }
+
+  // ── Private helpers ──
 
   Future<void> _persistDelete(String id) async {
     try {
@@ -361,17 +430,15 @@ class TodoProvider extends ChangeNotifier {
   void _sortTodos() {
     _todos.sort((a, b) {
       final bucketCompare = _bucketRank(a).compareTo(_bucketRank(b));
-      if (bucketCompare != 0) {
-        return bucketCompare;
-      }
-
+      if (bucketCompare != 0) return bucketCompare;
       final sortCompare = a.sortOrder.compareTo(b.sortOrder);
-      if (sortCompare != 0) {
-        return sortCompare;
-      }
-
+      if (sortCompare != 0) return sortCompare;
       return a.reminderTime.compareTo(b.reminderTime);
     });
+  }
+
+  void _sortLists() {
+    _lists.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
   }
 
   int _bucketRank(Todo todo) {
@@ -386,74 +453,76 @@ class TodoProvider extends ChangeNotifier {
   }
 
   TodoBucket _bucketFor(Todo todo) {
-    if (todo.isCompleted) {
-      return TodoBucket.completed;
-    }
-    if (todo.isStarred) {
-      return TodoBucket.important;
-    }
+    if (todo.isCompleted) return TodoBucket.completed;
+    if (todo.isStarred) return TodoBucket.important;
     return TodoBucket.pending;
   }
 
   int _nextSortOrder(TodoBucket bucket, {String? excludingId}) {
-    final bucketTodos = _todos
-        .where((todo) {
-          if (excludingId != null && todo.id == excludingId) {
-            return false;
-          }
-          return _bucketFor(todo) == bucket;
-        })
-        .toList(growable: false);
-    if (bucketTodos.isEmpty) {
-      return 0;
-    }
+    final bucketTodos = _todos.where((todo) {
+      if (excludingId != null && todo.id == excludingId) return false;
+      return todo.listId == _activeListId && _bucketFor(todo) == bucket;
+    }).toList(growable: false);
+    if (bucketTodos.isEmpty) return 0;
     return bucketTodos
             .map((todo) => todo.sortOrder)
-            .reduce((value, element) => value > element ? value : element) +
+            .reduce((v, e) => v > e ? v : e) +
         1;
   }
 
   List<Todo> _todosForBucket(TodoBucket bucket, {bool includeSearch = true}) {
-    final source = includeSearch ? filteredTodos : _todos;
+    final source = includeSearch ? filteredTodos : _todos.where((t) => t.listId == _activeListId).toList();
     return List<Todo>.unmodifiable(
       source.where((todo) => _bucketFor(todo) == bucket),
     );
   }
 
-  static List<Todo> _buildSeedTodos() {
-    final now = DateTime.now();
-
-    Todo buildTodo({
-      required String id,
-      required String title,
-      required String content,
-      required DateTime reminderTime,
-      required DateTime deadline,
-      required int remindDaysBeforeDDL,
-      required String notes,
-      required bool isMuted,
-      required bool isCompleted,
-      required bool isStarred,
-      required int sortOrder,
-    }) {
-      return Todo(
-        id: id,
-        title: title,
-        content: content,
-        reminderTime: reminderTime,
-        deadline: deadline,
-        remindDaysBeforeDDL: remindDaysBeforeDDL,
-        notes: notes,
-        isMuted: isMuted,
-        isCompleted: isCompleted,
-        isStarred: isStarred,
-        sortOrder: sortOrder,
-      );
-    }
-
+  static List<TodoList> _buildSeedLists() {
     return [
-      buildTodo(
+      TodoList(
+        id: 'personal',
+        name: 'Personal',
+        iconCodePoint: Icons.person_rounded.codePoint,
+        colorValue: 0xFF1D7860,
+        sortOrder: 0,
+      ),
+      TodoList(
+        id: 'work',
+        name: 'Work',
+        iconCodePoint: Icons.work_rounded.codePoint,
+        colorValue: 0xFF8F4E00,
+        sortOrder: 1,
+      ),
+      TodoList(
+        id: 'study',
+        name: 'Study',
+        iconCodePoint: Icons.school_rounded.codePoint,
+        colorValue: 0xFF2B5EB8,
+        sortOrder: 2,
+      ),
+      TodoList(
+        id: 'health',
+        name: 'Health',
+        iconCodePoint: Icons.favorite_rounded.codePoint,
+        colorValue: 0xFFB83625,
+        sortOrder: 3,
+      ),
+      TodoList(
+        id: 'ideas',
+        name: 'Ideas',
+        iconCodePoint: Icons.lightbulb_rounded.codePoint,
+        colorValue: 0xFF7540B8,
+        sortOrder: 4,
+      ),
+    ];
+  }
+
+  static List<Todo> _buildSeedTodos({String defaultListId = 'personal'}) {
+    final now = DateTime.now();
+    return [
+      Todo(
         id: 'seed-1',
+        listId: defaultListId,
         title: 'Morning focus',
         content: 'Review the shipping checklist and trim the backlog.',
         reminderTime: now.add(const Duration(minutes: 45)),
@@ -465,11 +534,11 @@ class TodoProvider extends ChangeNotifier {
         isStarred: false,
         sortOrder: 0,
       ),
-      buildTodo(
+      Todo(
         id: 'seed-2',
+        listId: defaultListId,
         title: 'Design review',
-        content:
-            'Confirm motion, spacing and edge-case handling for the popup.',
+        content: 'Confirm motion, spacing and edge-case handling for the popup.',
         reminderTime: now.add(const Duration(hours: 3)),
         deadline: now.add(const Duration(days: 1)),
         remindDaysBeforeDDL: 1,
@@ -479,8 +548,9 @@ class TodoProvider extends ChangeNotifier {
         isStarred: true,
         sortOrder: 0,
       ),
-      buildTodo(
+      Todo(
         id: 'seed-3',
+        listId: defaultListId,
         title: 'Grocery refill',
         content: 'Pick up fruit, oat milk and coffee before the week starts.',
         reminderTime: now.add(const Duration(days: 1, hours: 2)),

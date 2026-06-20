@@ -11,6 +11,9 @@ class TodoRecord {
   @Index(unique: true, replace: true)
   late String todoId;
 
+  // Non-late: Isar ignores this field; populated by IsarTodoRepository from sidecar.
+  String listId = 'personal';
+
   late String title;
   late String content;
   late DateTime reminderTime;
@@ -25,6 +28,7 @@ class TodoRecord {
   Todo toTodo() {
     return Todo(
       id: todoId,
+      listId: listId,
       title: title,
       content: content,
       reminderTime: reminderTime,
@@ -41,6 +45,7 @@ class TodoRecord {
   static TodoRecord fromTodo(Todo todo) {
     return TodoRecord()
       ..todoId = todo.id
+      ..listId = todo.listId
       ..title = todo.title
       ..content = todo.content
       ..reminderTime = todo.reminderTime

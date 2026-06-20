@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/todo.dart';
 import '../providers/todo_provider.dart';
+import '../widgets/move_to_list_sheet.dart';
 import '../widgets/todo_card_page.dart';
 import '../widgets/todo_section_panel.dart';
 import '../widgets/todo_tile.dart';
@@ -248,6 +249,11 @@ class _HomeScreenState extends State<HomeScreen> {
       onToggleCompleted: () => _toggleCompleted(todo),
       onToggleStarred: () =>
           context.read<TodoProvider>().toggleStarred(todo.id),
+      onMoveToList: () => MoveToListSheet.show(
+        context,
+        todoId: todo.id,
+        currentListId: todo.listId,
+      ),
     );
   }
 
@@ -280,58 +286,78 @@ class _HomeScreenState extends State<HomeScreen> {
         ? false
         : _completedExpanded;
 
+    final isDesktop =
+        MediaQuery.of(context).size.width >= 700;
+    final activeList = todoProvider.activeList;
+
     return Scaffold(
       appBar: AppBar(
-        leadingWidth: 64,
-        leading: Align(
-          alignment: Alignment.center,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: _ToolbarCircleButton(
-              tooltip: _batchMode ? 'Finish edit' : 'Edit',
-              onPressed: _toggleBatchMode,
-              icon: Icon(
-                Icons.edit_outlined,
-                color: _batchMode ? theme.colorScheme.primary : null,
-              ),
-            ),
-          ),
-        ),
+        leadingWidth: isDesktop ? 0 : 64,
+        leading: isDesktop
+            ? null
+            : _batchMode
+                ? Align(
+                    alignment: Alignment.center,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: _ToolbarCircleButton(
+                        tooltip: 'Finish edit',
+                        onPressed: _toggleBatchMode,
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ),
+                  )
+                : Align(
+                    alignment: Alignment.center,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12),
+                      child: _ToolbarCircleButton(
+                        tooltip: 'Open lists',
+                        onPressed: () =>
+                            Scaffold.of(context).openDrawer(),
+                        icon: const Icon(Icons.menu_rounded),
+                      ),
+                    ),
+                  ),
         titleSpacing: 0,
         title: Padding(
           padding: const EdgeInsets.only(left: 4, right: 8),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 240),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: (child, animation) {
-              return FadeTransition(
-                opacity: animation,
-                child: SizeTransition(
-                  sizeFactor: animation,
-                  axis: Axis.horizontal,
-                  child: child,
-                ),
-              );
-            },
-            child: _batchMode
-                ? _BatchModeTitle(
-                    key: const ValueKey('batch-title'),
-                    selectedCount: selectedVisibleTodoCount,
-                  )
-                : TextField(
-                    key: const ValueKey('search-field'),
-                    controller: _searchController,
-                    onChanged: todoProvider.setSearchQuery,
-                    onTapOutside: (_) => _dismissKeyboard(),
-                    textInputAction: TextInputAction.search,
-                    decoration: const InputDecoration(
-                      hintText: 'Search todo',
-                      prefixIcon: Icon(Icons.search),
-                      isDense: true,
+          child: _batchMode
+              ? _BatchModeTitle(
+                  key: const ValueKey('batch-title'),
+                  selectedCount: selectedVisibleTodoCount,
+                )
+              : Row(
+                  key: const ValueKey('list-title'),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (activeList != null) ...[
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: activeList.color.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Icon(
+                          activeList.icon,
+                          color: activeList.color,
+                          size: 17,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Text(
+                      activeList?.name ?? 'Trig',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-          ),
+                  ],
+                ),
         ),
         actions: [
           Padding(
@@ -377,11 +403,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ],
                       )
-                    : _ToolbarCircleButton(
-                        key: const ValueKey('add-action'),
-                        tooltip: 'Add todo',
-                        onPressed: _openComposer,
-                        icon: const Icon(Icons.add),
+                    : Row(
+                        key: const ValueKey('normal-actions'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _ToolbarCircleButton(
+                            tooltip: 'Edit',
+                            onPressed: _toggleBatchMode,
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                          const SizedBox(width: 8),
+                          _ToolbarCircleButton(
+                            tooltip: 'Add todo',
+                            onPressed: _openComposer,
+                            icon: const Icon(Icons.add),
+                            accent: true,
+                          ),
+                        ],
                       ),
               ),
             ),
@@ -571,29 +609,47 @@ class _ToolbarCircleButton extends StatelessWidget {
     required this.tooltip,
     required this.onPressed,
     required this.icon,
+    this.accent = false,
     super.key,
   });
 
   final String tooltip;
   final VoidCallback? onPressed;
   final Widget icon;
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return SizedBox.square(
       dimension: 44,
-      child: IconButton.filledTonal(
-        tooltip: tooltip,
-        onPressed: onPressed,
-        style: IconButton.styleFrom(
-          minimumSize: const Size.square(44),
-          maximumSize: const Size.square(44),
-          padding: EdgeInsets.zero,
-          shape: const CircleBorder(),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-        icon: icon,
-      ),
+      child: accent
+          ? IconButton.filled(
+              tooltip: tooltip,
+              onPressed: onPressed,
+              style: IconButton.styleFrom(
+                minimumSize: const Size.square(44),
+                maximumSize: const Size.square(44),
+                padding: EdgeInsets.zero,
+                shape: const CircleBorder(),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                foregroundColor: theme.colorScheme.onPrimaryContainer,
+              ),
+              icon: icon,
+            )
+          : IconButton.filledTonal(
+              tooltip: tooltip,
+              onPressed: onPressed,
+              style: IconButton.styleFrom(
+                minimumSize: const Size.square(44),
+                maximumSize: const Size.square(44),
+                padding: EdgeInsets.zero,
+                shape: const CircleBorder(),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: icon,
+            ),
     );
   }
 }

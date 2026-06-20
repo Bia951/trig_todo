@@ -21,6 +21,7 @@ void main() {
           isCompleted: false,
           isStarred: true,
           sortOrder: 0,
+          listId: 'personal',
         ),
         Todo(
           id: 'todo-2',
@@ -34,6 +35,7 @@ void main() {
           isCompleted: false,
           isStarred: false,
           sortOrder: 0,
+          listId: 'personal',
         ),
       ],
     );

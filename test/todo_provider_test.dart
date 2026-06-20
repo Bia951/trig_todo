@@ -16,6 +16,7 @@ void main() {
       isCompleted: false,
       isStarred: false,
       sortOrder: int.parse(id),
+      listId: 'personal',
     );
   }
 

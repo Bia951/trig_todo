@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/todo.dart';
 import '../providers/todo_provider.dart';
+import 'move_to_list_sheet.dart';
 
 class TodoCardPage extends StatefulWidget {
   const TodoCardPage({
@@ -341,6 +342,13 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                                       .notifications_off_outlined
                                                 : Icons.notifications_rounded,
                                           ),
+                                          if (!_isDraft) ...[
+                                            const SizedBox(height: 12),
+                                            _MoveTile(
+                                              todoId: _draft.id,
+                                              currentListId: _draft.listId,
+                                            ),
+                                          ],
                                         ],
                                         AnimatedSwitcher(
                                           duration: const Duration(
@@ -600,6 +608,77 @@ class _ReadOnlySection extends StatelessWidget {
             style: theme.textTheme.bodyLarge?.copyWith(height: 1.35),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MoveTile extends StatelessWidget {
+  const _MoveTile({required this.todoId, required this.currentListId});
+
+  final String todoId;
+  final String currentListId;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lists = context.watch<TodoProvider>().lists;
+    final currentList = lists.where((l) => l.id == currentListId).firstOrNull;
+    final listName = currentList?.name ?? 'Personal';
+    final listIcon = currentList?.icon;
+    final listColor = currentList?.color;
+
+    return Material(
+      color: theme.colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: () => MoveToListSheet.show(
+          context,
+          todoId: todoId,
+          currentListId: currentListId,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Row(
+            children: [
+              if (listIcon != null && listColor != null)
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: listColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(listIcon, color: listColor, size: 18),
+                )
+              else
+                Icon(Icons.list_rounded, color: theme.colorScheme.onSurface),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'List',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      listName,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
+        ),
       ),
     );
   }

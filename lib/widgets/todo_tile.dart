@@ -13,6 +13,7 @@ class TodoTile extends StatelessWidget {
     required this.onToggleMute,
     required this.onToggleCompleted,
     required this.onToggleStarred,
+    required this.onMoveToList,
     super.key,
   });
 
@@ -27,6 +28,53 @@ class TodoTile extends StatelessWidget {
   final VoidCallback onToggleMute;
   final VoidCallback onToggleCompleted;
   final VoidCallback onToggleStarred;
+  final VoidCallback onMoveToList;
+
+  void _showTileMenu(BuildContext context) {
+    final theme = Theme.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 38,
+              height: 5,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.outlineVariant,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note_rounded),
+              title: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () {
+                Navigator.of(context).pop();
+                onOpenEdit();
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.drive_file_move_rounded, color: theme.colorScheme.primary),
+              title: Text(
+                'Move to list',
+                style: TextStyle(fontWeight: FontWeight.w600, color: theme.colorScheme.primary),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                onMoveToList();
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +112,7 @@ class TodoTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(26),
         child: InkWell(
           onTap: batchMode ? onToggleSelected : onOpenPreview,
-          onLongPress: batchMode ? null : onOpenEdit,
+          onLongPress: batchMode ? null : () => _showTileMenu(context),
           borderRadius: BorderRadius.circular(26),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),

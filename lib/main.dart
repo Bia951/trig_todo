@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'providers/todo_provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/app_shell.dart';
 import 'theme/trig_theme.dart';
 
 Future<void> main() async {
@@ -53,7 +53,7 @@ class TrigApp extends StatelessWidget {
         themeMode: ThemeMode.system,
         theme: TrigTheme.light(lightDynamic),
         darkTheme: TrigTheme.dark(darkDynamic),
-        home: const HomeScreen(),
+        home: const AppShell(),
       ),
     );
   }

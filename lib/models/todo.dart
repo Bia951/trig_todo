@@ -1,6 +1,7 @@
 class Todo {
   const Todo({
     required this.id,
+    required this.listId,
     required this.title,
     required this.content,
     required this.reminderTime,
@@ -14,6 +15,7 @@ class Todo {
   });
 
   final String id;
+  final String listId;
   final String title;
   final String content;
   final DateTime reminderTime;
@@ -31,6 +33,7 @@ class Todo {
   factory Todo.fromJson(Map<String, dynamic> json) {
     return Todo(
       id: json['id'] as String,
+      listId: json['listId'] as String? ?? 'personal',
       title: json['title'] as String? ?? '',
       content: json['content'] as String? ?? '',
       reminderTime: DateTime.fromMillisecondsSinceEpoch(
@@ -48,6 +51,7 @@ class Todo {
 
   Todo copyWith({
     String? id,
+    String? listId,
     String? title,
     String? content,
     DateTime? reminderTime,
@@ -61,6 +65,7 @@ class Todo {
   }) {
     return Todo(
       id: id ?? this.id,
+      listId: listId ?? this.listId,
       title: title ?? this.title,
       content: content ?? this.content,
       reminderTime: reminderTime ?? this.reminderTime,
@@ -77,6 +82,7 @@ class Todo {
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'id': id,
+      'listId': listId,
       'title': title,
       'content': content,
       'reminderTime': reminderTime.millisecondsSinceEpoch,
