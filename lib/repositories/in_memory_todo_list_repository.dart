@@ -1,10 +1,6 @@
 import '../models/todo_list.dart';
 import 'todo_list_repository.dart';
 
-Future<TodoListRepository> createPlatformTodoListRepository() async {
-  return InMemoryTodoListRepository();
-}
-
 class InMemoryTodoListRepository extends TodoListRepository {
   final List<TodoList> _lists = [];
   String? _activeListId;

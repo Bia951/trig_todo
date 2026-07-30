@@ -12,7 +12,7 @@ class TodoRecord {
   late String todoId;
 
   // Non-late: Isar ignores this field; populated by IsarTodoRepository from sidecar.
-  String listId = 'personal';
+  String listId = 'inbox';
 
   late String title;
   late String content;

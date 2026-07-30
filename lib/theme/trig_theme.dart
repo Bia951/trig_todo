@@ -23,7 +23,7 @@ class TrigTheme {
     ColorScheme? dynamicScheme,
   }) {
     final shouldUseAndroidDynamicColor =
-        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+        defaultTargetPlatform == TargetPlatform.android;
     final colorScheme = shouldUseAndroidDynamicColor && dynamicScheme != null
         ? dynamicScheme
         : ColorScheme.fromSeed(

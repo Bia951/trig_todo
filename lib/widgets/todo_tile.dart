@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/todo.dart';
 
+enum _TodoMenuAction { edit, moveToList }
+
 class TodoTile extends StatelessWidget {
   const TodoTile({
     required this.todo,
@@ -30,7 +32,7 @@ class TodoTile extends StatelessWidget {
   final VoidCallback onToggleStarred;
   final VoidCallback onMoveToList;
 
-  void _showTileMenu(BuildContext context) {
+  void _showMobileMenu(BuildContext context) {
     final theme = Theme.of(context);
     showModalBottomSheet<void>(
       context: context,
@@ -52,17 +54,26 @@ class TodoTile extends StatelessWidget {
             ),
             ListTile(
               leading: const Icon(Icons.edit_note_rounded),
-              title: const Text('Edit', style: TextStyle(fontWeight: FontWeight.w600)),
+              title: const Text(
+                'Edit',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
               onTap: () {
                 Navigator.of(context).pop();
                 onOpenEdit();
               },
             ),
             ListTile(
-              leading: Icon(Icons.drive_file_move_rounded, color: theme.colorScheme.primary),
+              leading: Icon(
+                Icons.drive_file_move_rounded,
+                color: theme.colorScheme.primary,
+              ),
               title: Text(
                 'Move to list',
-                style: TextStyle(fontWeight: FontWeight.w600, color: theme.colorScheme.primary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.primary,
+                ),
               ),
               onTap: () {
                 Navigator.of(context).pop();
@@ -76,6 +87,48 @@ class TodoTile extends StatelessWidget {
     );
   }
 
+  Future<void> _showDesktopMenu(
+    BuildContext context,
+    Offset globalPosition,
+  ) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final action = await showMenu<_TodoMenuAction>(
+      context: context,
+      position: RelativeRect.fromRect(
+        globalPosition & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: const [
+        PopupMenuItem(
+          value: _TodoMenuAction.edit,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.edit_note_rounded),
+            title: Text('Edit'),
+          ),
+        ),
+        PopupMenuItem(
+          value: _TodoMenuAction.moveToList,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.drive_file_move_rounded),
+            title: Text('Move to list'),
+          ),
+        ),
+      ],
+    );
+
+    switch (action) {
+      case _TodoMenuAction.edit:
+        onOpenEdit();
+      case _TodoMenuAction.moveToList:
+        onMoveToList();
+      case null:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -86,6 +139,7 @@ class TodoTile extends StatelessWidget {
     );
     final hasTitle = todo.hasTitle;
     final titleText = todo.presentationTitle;
+    final useDesktopInteractions = MediaQuery.sizeOf(context).width >= 700;
     final selectionColor = isSelected
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
@@ -112,7 +166,12 @@ class TodoTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(26),
         child: InkWell(
           onTap: batchMode ? onToggleSelected : onOpenPreview,
-          onLongPress: batchMode ? null : () => _showTileMenu(context),
+          onLongPress: !useDesktopInteractions && !batchMode
+              ? () => _showMobileMenu(context)
+              : null,
+          onSecondaryTapUp: useDesktopInteractions && !batchMode
+              ? (details) => _showDesktopMenu(context, details.globalPosition)
+              : null,
           borderRadius: BorderRadius.circular(26),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),

@@ -25,10 +25,8 @@ class MoveToListSheet extends StatefulWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => MoveToListSheet(
-        todoId: todoId,
-        currentListId: currentListId,
-      ),
+      builder: (_) =>
+          MoveToListSheet(todoId: todoId, currentListId: currentListId),
     );
   }
 
@@ -107,6 +105,7 @@ class _MoveToListSheetState extends State<MoveToListSheet> {
             itemCount: lists.length,
             itemBuilder: (context, index) {
               final list = lists[index];
+              final listColor = list.colorFor(theme.colorScheme);
               final isCurrent = list.id == widget.currentListId;
               final isSelected = list.id == _selectedListId;
               return Opacity(
@@ -133,10 +132,10 @@ class _MoveToListSheetState extends State<MoveToListSheet> {
                           width: 34,
                           height: 34,
                           decoration: BoxDecoration(
-                            color: list.color.withValues(alpha: 0.15),
+                            color: listColor.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(11),
                           ),
-                          child: Icon(list.icon, color: list.color, size: 19),
+                          child: Icon(list.icon, color: listColor, size: 19),
                         ),
                         const SizedBox(width: 13),
                         Expanded(

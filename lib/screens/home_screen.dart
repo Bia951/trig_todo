@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/todo.dart';
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final TextEditingController _searchController;
+  late final FocusNode _batchModeFocusNode;
   bool _batchMode = false;
   final Set<String> _selectedTodoIds = <String>{};
   bool _didInitializeExpansions = false;
@@ -28,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    _batchModeFocusNode = FocusNode(debugLabel: 'Batch mode keyboard focus');
   }
 
   @override
@@ -48,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _batchModeFocusNode.dispose();
     super.dispose();
   }
 
@@ -95,6 +99,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _batchMode = willEnterBatchMode;
       _selectedTodoIds.clear();
     });
+
+    if (willEnterBatchMode) {
+      _batchModeFocusNode.requestFocus();
+    }
   }
 
   void _toggleCompleted(Todo todo) {
@@ -261,12 +269,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final todoProvider = context.watch<TodoProvider>();
-    final importantTodos = todoProvider.importantTodos;
-    final pendingTodos = todoProvider.pendingTodos;
-    final completedTodos = todoProvider.completedTodos;
-    final selectedVisibleTodoCount = todoProvider.todos
-        .where((todo) => _selectedTodoIds.contains(todo.id))
-        .length;
+    final isTodayView = todoProvider.showingToday;
+    final importantTodos = isTodayView
+        ? todoProvider.todayImportantTodos
+        : todoProvider.importantTodos;
+    final pendingTodos = isTodayView
+        ? todoProvider.todayPendingTodos
+        : todoProvider.pendingTodos;
+    final completedTodos = isTodayView
+        ? const <Todo>[]
+        : todoProvider.completedTodos;
+    final selectedVisibleTodoCount = <Todo>[
+      ...importantTodos,
+      ...pendingTodos,
+      ...completedTodos,
+    ].where((todo) => _selectedTodoIds.contains(todo.id)).length;
     final hasSearchQuery = todoProvider.searchQuery.trim().isNotEmpty;
     final hasAnyVisibleTodos =
         importantTodos.isNotEmpty ||
@@ -286,251 +303,283 @@ class _HomeScreenState extends State<HomeScreen> {
         ? false
         : _completedExpanded;
 
-    final isDesktop =
-        MediaQuery.of(context).size.width >= 700;
+    final isDesktop = MediaQuery.of(context).size.width >= 700;
     final activeList = todoProvider.activeList;
 
-    return Scaffold(
-      appBar: AppBar(
-        leadingWidth: isDesktop ? 0 : 64,
-        leading: isDesktop
-            ? null
-            : _batchMode
-                ? Align(
-                    alignment: Alignment.center,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: _ToolbarCircleButton(
-                        tooltip: 'Finish edit',
-                        onPressed: _toggleBatchMode,
-                        icon: Icon(
-                          Icons.close_rounded,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  )
-                : Align(
-                    alignment: Alignment.center,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: _ToolbarCircleButton(
-                        tooltip: 'Open lists',
-                        onPressed: () =>
-                            Scaffold.of(context).openDrawer(),
-                        icon: const Icon(Icons.menu_rounded),
+    return Focus(
+      focusNode: _batchModeFocusNode,
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape &&
+            _batchMode) {
+          _exitBatchMode();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leadingWidth: isDesktop ? 0 : 64,
+          leading: isDesktop
+              ? null
+              : _batchMode
+              ? Align(
+                  alignment: Alignment.center,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: _ToolbarCircleButton(
+                      tooltip: 'Finish edit',
+                      onPressed: _toggleBatchMode,
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: theme.colorScheme.primary,
                       ),
                     ),
                   ),
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(left: 4, right: 8),
-          child: _batchMode
-              ? _BatchModeTitle(
-                  key: const ValueKey('batch-title'),
-                  selectedCount: selectedVisibleTodoCount,
                 )
-              : Row(
-                  key: const ValueKey('list-title'),
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (activeList != null) ...[
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: activeList.color.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(9),
-                        ),
-                        child: Icon(
-                          activeList.icon,
-                          color: activeList.color,
-                          size: 17,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    Text(
-                      activeList?.name ?? 'Trig',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+              : Align(
+                  alignment: Alignment.center,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: _ToolbarCircleButton(
+                      tooltip: 'Open lists',
+                      onPressed: () => Scaffold.of(context).openDrawer(),
+                      icon: const Icon(Icons.menu_rounded),
                     ),
-                  ],
+                  ),
                 ),
-        ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.12, 0),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  );
-                },
-                child: _batchMode
-                    ? Row(
-                        key: const ValueKey('batch-actions'),
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _ToolbarCircleButton(
-                            tooltip: 'Delete selected',
-                            onPressed: selectedVisibleTodoCount == 0
-                                ? null
-                                : _confirmDeleteSelectedTodos,
-                            icon: const Icon(Icons.delete_outline_rounded),
+          titleSpacing: 0,
+          title: Padding(
+            padding: const EdgeInsets.only(left: 4, right: 8),
+            child: _batchMode
+                ? _BatchModeTitle(
+                    key: const ValueKey('batch-title'),
+                    selectedCount: selectedVisibleTodoCount,
+                  )
+                : isTodayView
+                ? _TodayTitle(theme: theme)
+                : Row(
+                    key: const ValueKey('list-title'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (activeList != null) ...[
+                        Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            color: activeList
+                                .colorFor(theme.colorScheme)
+                                .withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(9),
                           ),
-                          const SizedBox(width: 8),
-                          _ToolbarCircleButton(
-                            tooltip: 'Complete selected',
-                            onPressed: selectedVisibleTodoCount == 0
-                                ? null
-                                : _completeSelectedTodos,
-                            icon: const Icon(Icons.check_box_outlined),
+                          child: Icon(
+                            activeList.icon,
+                            color: activeList.colorFor(theme.colorScheme),
+                            size: 17,
                           ),
-                        ],
-                      )
-                    : Row(
-                        key: const ValueKey('normal-actions'),
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _ToolbarCircleButton(
-                            tooltip: 'Edit',
-                            onPressed: _toggleBatchMode,
-                            icon: const Icon(Icons.edit_outlined),
-                          ),
-                          const SizedBox(width: 8),
-                          _ToolbarCircleButton(
-                            tooltip: 'Add todo',
-                            onPressed: _openComposer,
-                            icon: const Icon(Icons.add),
-                            accent: true,
-                          ),
-                        ],
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      Text(
+                        activeList?.name ?? 'Trig',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
+                    ],
+                  ),
+          ),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.12, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _batchMode
+                      ? Row(
+                          key: const ValueKey('batch-actions'),
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _ToolbarCircleButton(
+                              tooltip: 'Delete selected',
+                              onPressed: selectedVisibleTodoCount == 0
+                                  ? null
+                                  : _confirmDeleteSelectedTodos,
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            ),
+                            const SizedBox(width: 8),
+                            _ToolbarCircleButton(
+                              tooltip: 'Complete selected',
+                              onPressed: selectedVisibleTodoCount == 0
+                                  ? null
+                                  : _completeSelectedTodos,
+                              icon: const Icon(Icons.check_box_outlined),
+                            ),
+                            const SizedBox(width: 8),
+                            _ToolbarCircleButton(
+                              tooltip: 'Finish edit',
+                              onPressed: _toggleBatchMode,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          key: const ValueKey('normal-actions'),
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _ToolbarCircleButton(
+                              tooltip: 'Edit',
+                              onPressed: _toggleBatchMode,
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            const SizedBox(width: 8),
+                            _ToolbarCircleButton(
+                              tooltip: 'Add todo',
+                              onPressed: _openComposer,
+                              icon: const Icon(Icons.add),
+                              accent: true,
+                            ),
+                          ],
+                        ),
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              theme.colorScheme.surfaceContainerLowest,
-              Color.alphaBlend(
-                theme.colorScheme.primary.withValues(alpha: 0.05),
-                theme.colorScheme.surface,
-              ),
-              theme.colorScheme.surfaceContainerLow,
-            ],
-          ),
+          ],
         ),
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: _dismissKeyboard,
-          child: hasSearchQuery && !hasAnyVisibleTodos
-              ? const _SearchEmptyState()
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  children: [
-                    if (showAllSectionsInSearch ||
-                        importantTodos.isNotEmpty) ...[
+        body: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                theme.colorScheme.surfaceContainerLowest,
+                Color.alphaBlend(
+                  theme.colorScheme.primary.withValues(alpha: 0.05),
+                  theme.colorScheme.surface,
+                ),
+                theme.colorScheme.surfaceContainerLow,
+              ],
+            ),
+          ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _dismissKeyboard,
+            child: hasSearchQuery && !hasAnyVisibleTodos
+                ? const _SearchEmptyState()
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: [
+                      if (showAllSectionsInSearch ||
+                          importantTodos.isNotEmpty) ...[
+                        TodoSectionPanel(
+                          title: 'Important',
+                          todos: importantTodos,
+                          isExpanded: effectiveImportantExpanded,
+                          onToggleExpanded: () {
+                            setState(() {
+                              _importantExpanded = !_importantExpanded;
+                            });
+                          },
+                          batchMode: _batchMode,
+                          onReorder: _batchMode && !isTodayView
+                              ? (oldIndex, newIndex) {
+                                  todoProvider.reorderTodos(
+                                    bucket: TodoBucket.important,
+                                    oldIndex: oldIndex,
+                                    newIndex: newIndex,
+                                  );
+                                }
+                              : null,
+                          emptyLabel: hasSearchQuery
+                              ? 'No important todos match this search.'
+                              : isTodayView
+                              ? 'No important todos today.'
+                              : 'No important todos yet.',
+                          tileBuilder: _buildSectionTile,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
                       TodoSectionPanel(
-                        title: 'Important',
-                        todos: importantTodos,
-                        isExpanded: effectiveImportantExpanded,
+                        title: 'Pending',
+                        todos: pendingTodos,
+                        isExpanded: effectivePendingExpanded,
                         onToggleExpanded: () {
                           setState(() {
-                            _importantExpanded = !_importantExpanded;
+                            _pendingExpanded = !_pendingExpanded;
                           });
                         },
                         batchMode: _batchMode,
-                        onReorder: _batchMode
+                        onReorder: _batchMode && !isTodayView
                             ? (oldIndex, newIndex) {
                                 todoProvider.reorderTodos(
-                                  bucket: TodoBucket.important,
+                                  bucket: TodoBucket.pending,
                                   oldIndex: oldIndex,
                                   newIndex: newIndex,
                                 );
                               }
                             : null,
                         emptyLabel: hasSearchQuery
-                            ? 'No important todos match this search.'
-                            : 'No important todos yet.',
+                            ? 'No pending todos match this search.'
+                            : isTodayView
+                            ? 'Nothing else is scheduled for today.'
+                            : 'No pending todos yet.',
                         tileBuilder: _buildSectionTile,
                       ),
                       const SizedBox(height: 14),
+                      if (!isTodayView)
+                        TodoSectionPanel(
+                          title: 'Completed',
+                          todos: completedTodos,
+                          isExpanded: effectiveCompletedExpanded,
+                          onToggleExpanded: () {
+                            setState(() {
+                              _completedExpanded = !_completedExpanded;
+                            });
+                          },
+                          batchMode: _batchMode,
+                          onReorder: _batchMode
+                              ? (oldIndex, newIndex) {
+                                  todoProvider.reorderTodos(
+                                    bucket: TodoBucket.completed,
+                                    oldIndex: oldIndex,
+                                    newIndex: newIndex,
+                                  );
+                                }
+                              : null,
+                          emptyLabel: hasSearchQuery
+                              ? 'No completed todos match this search.'
+                              : 'Completed tasks will gather here.',
+                          tileBuilder: _buildSectionTile,
+                        ),
                     ],
-                    TodoSectionPanel(
-                      title: 'Pending',
-                      todos: pendingTodos,
-                      isExpanded: effectivePendingExpanded,
-                      onToggleExpanded: () {
-                        setState(() {
-                          _pendingExpanded = !_pendingExpanded;
-                        });
-                      },
-                      batchMode: _batchMode,
-                      onReorder: _batchMode
-                          ? (oldIndex, newIndex) {
-                              todoProvider.reorderTodos(
-                                bucket: TodoBucket.pending,
-                                oldIndex: oldIndex,
-                                newIndex: newIndex,
-                              );
-                            }
-                          : null,
-                      emptyLabel: hasSearchQuery
-                          ? 'No pending todos match this search.'
-                          : 'No pending todos yet.',
-                      tileBuilder: _buildSectionTile,
-                    ),
-                    const SizedBox(height: 14),
-                    TodoSectionPanel(
-                      title: 'Completed',
-                      todos: completedTodos,
-                      isExpanded: effectiveCompletedExpanded,
-                      onToggleExpanded: () {
-                        setState(() {
-                          _completedExpanded = !_completedExpanded;
-                        });
-                      },
-                      batchMode: _batchMode,
-                      onReorder: _batchMode
-                          ? (oldIndex, newIndex) {
-                              todoProvider.reorderTodos(
-                                bucket: TodoBucket.completed,
-                                oldIndex: oldIndex,
-                                newIndex: newIndex,
-                              );
-                            }
-                          : null,
-                      emptyLabel: hasSearchQuery
-                          ? 'No completed todos match this search.'
-                          : 'Completed tasks will gather here.',
-                      tileBuilder: _buildSectionTile,
-                    ),
-                  ],
-                ),
+                  ),
+          ),
         ),
       ),
     );
+  }
+
+  void _exitBatchMode() {
+    if (_batchMode) {
+      _toggleBatchMode();
+    }
   }
 }
 
@@ -600,6 +649,42 @@ class _BatchModeTitle extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TodayTitle extends StatelessWidget {
+  const _TodayTitle({required this.theme});
+
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey('today-title'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: theme.colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(
+            Icons.today_rounded,
+            color: theme.colorScheme.onPrimaryContainer,
+            size: 17,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Today',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
 }

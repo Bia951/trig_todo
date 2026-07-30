@@ -33,7 +33,7 @@ class Todo {
   factory Todo.fromJson(Map<String, dynamic> json) {
     return Todo(
       id: json['id'] as String,
-      listId: json['listId'] as String? ?? 'personal',
+      listId: json['listId'] as String? ?? 'inbox',
       title: json['title'] as String? ?? '',
       content: json['content'] as String? ?? '',
       reminderTime: DateTime.fromMillisecondsSinceEpoch(

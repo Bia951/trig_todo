@@ -5,10 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../models/todo.dart';
 import '../models/todo_list.dart';
+import '../repositories/in_memory_todo_list_repository.dart';
 import '../repositories/in_memory_todo_repository.dart';
 import '../repositories/todo_list_repository.dart';
 import '../repositories/todo_list_repository_factory.dart';
-import '../repositories/todo_list_repository_stub.dart';
 import '../repositories/todo_repository.dart';
 import '../repositories/todo_repository_factory.dart';
 import '../services/todo_reminder_scheduler.dart';
@@ -26,49 +26,58 @@ class TodoProvider extends ChangeNotifier {
     TodoReminderScheduler? reminderScheduler,
   }) : _repository =
            repository ??
-           InMemoryTodoRepository(
-             initialTodos: initialTodos ?? [],
-           ),
+           InMemoryTodoRepository(initialTodos: initialTodos ?? []),
        _listRepository = listRepository ?? InMemoryTodoListRepository(),
        _reminderScheduler = reminderScheduler ?? NoopTodoReminderScheduler(),
        _todos = List<Todo>.from(initialTodos ?? []),
-       _lists = List<TodoList>.from(initialLists ?? []),
-       _activeListId = initialActiveListId ?? '' {
+       _lists = List<TodoList>.from(initialLists ?? _buildSeedLists()),
+       _activeListId =
+           initialActiveListId ??
+           (initialLists == null ? TodoList.inboxId : '') {
     _sortTodos();
     _sortLists();
   }
 
   static Future<TodoProvider> bootstrap() async {
-    final todoRepository = await createTodoRepository();
-    final listRepository = await createTodoListRepository();
-    final reminderScheduler = await createTodoReminderScheduler();
-    final provider = TodoProvider(
-      initialTodos: const <Todo>[],
-      repository: todoRepository,
-      listRepository: listRepository,
-      reminderScheduler: reminderScheduler,
-    );
-    await provider.hydrate();
-    return provider;
+    try {
+      final todoRepository = await createTodoRepository();
+      final listRepository = await createTodoListRepository();
+      final provider = TodoProvider(
+        initialTodos: const <Todo>[],
+        repository: todoRepository,
+        listRepository: listRepository,
+      );
+      await provider.hydrate();
+      return provider;
+    } on Object catch (error, stackTrace) {
+      // A damaged database must not prevent the application shell from
+      // appearing. The user can still work with an in-memory session.
+      debugPrint('Failed to open persisted todo data: $error\n$stackTrace');
+      final provider = TodoProvider();
+      await provider.hydrate();
+      return provider;
+    }
   }
 
   final TodoRepository _repository;
   final TodoListRepository _listRepository;
-  final TodoReminderScheduler _reminderScheduler;
+  TodoReminderScheduler _reminderScheduler;
+  Future<void>? _reminderInitialization;
   final List<Todo> _todos;
   final List<TodoList> _lists;
   String _activeListId;
+  bool _showingToday = false;
   String _searchQuery = '';
 
   // ── List accessors ──
 
   UnmodifiableListView<TodoList> get lists => UnmodifiableListView(_lists);
   String get activeListId => _activeListId;
-  TodoList? get activeList =>
-      _lists.cast<TodoList?>().firstWhere(
-        (l) => l?.id == _activeListId,
-        orElse: () => null,
-      );
+  bool get showingToday => _showingToday;
+  TodoList? get activeList => _lists.cast<TodoList?>().firstWhere(
+    (l) => l?.id == _activeListId,
+    orElse: () => null,
+  );
 
   int countForList(String listId) =>
       _todos.where((t) => t.listId == listId && !t.isCompleted).length;
@@ -77,10 +86,10 @@ class TodoProvider extends ChangeNotifier {
 
   UnmodifiableListView<Todo> get todos => UnmodifiableListView(_todos);
   String get searchQuery => _searchQuery;
-  bool get hasImportantTodos =>
-      _todos.any(
-        (todo) => todo.listId == _activeListId && todo.isStarred && !todo.isCompleted,
-      );
+  bool get hasImportantTodos => _todos.any(
+    (todo) =>
+        todo.listId == _activeListId && todo.isStarred && !todo.isCompleted,
+  );
 
   List<Todo> get filteredTodos {
     final listScoped = _todos.where((t) => t.listId == _activeListId);
@@ -96,22 +105,44 @@ class TodoProvider extends ChangeNotifier {
   List<Todo> get completedTodos => _todosForBucket(TodoBucket.completed);
   List<Todo> get importantTodos => _todosForBucket(TodoBucket.important);
   List<Todo> get pendingTodos => _todosForBucket(TodoBucket.pending);
+  List<Todo> get todayTodos => _todayTodosForBucket();
+  List<Todo> get todayCompletedTodos =>
+      _todayTodosForBucket(bucket: TodoBucket.completed);
+  List<Todo> get todayImportantTodos =>
+      _todayTodosForBucket(bucket: TodoBucket.important);
+  List<Todo> get todayPendingTodos =>
+      _todayTodosForBucket(bucket: TodoBucket.pending);
+  int get todayTodoCount => todayTodos.length;
 
   // ── Hydrate ──
 
   Future<void> hydrate({bool seedIfEmpty = true}) async {
     // Load lists first
     final (:lists, :activeListId) = await _listRepository.load();
-    final effectiveLists = lists.isEmpty && seedIfEmpty
+    final normalizedLists = lists
+        .map(
+          (list) => list.id == TodoList.inboxId && list.name == '收件箱'
+              ? list.copyWith(name: 'Inbox')
+              : list,
+        )
+        .toList(growable: false);
+    final didRenameInbox = normalizedLists.asMap().entries.any(
+      (entry) => entry.value.name != lists[entry.key].name,
+    );
+    final needsInbox =
+        seedIfEmpty && normalizedLists.every((list) => !list.isInbox);
+    final effectiveLists = normalizedLists.isEmpty && seedIfEmpty
         ? _buildSeedLists()
-        : lists;
+        : needsInbox
+        ? <TodoList>[_buildSeedLists().single, ...normalizedLists]
+        : normalizedLists;
 
     _lists
       ..clear()
       ..addAll(effectiveLists);
     _sortLists();
 
-    if (lists.isEmpty && seedIfEmpty) {
+    if ((lists.isEmpty && seedIfEmpty) || didRenameInbox || needsInbox) {
       for (final l in _lists) {
         unawaited(_listRepository.saveList(l));
       }
@@ -129,28 +160,62 @@ class TodoProvider extends ChangeNotifier {
     final effectiveTodos = persistedTodos.isEmpty && seedIfEmpty
         ? _buildSeedTodos(defaultListId: firstListId)
         : persistedTodos;
+    final normalizedTodos = effectiveTodos
+        .map(_ensureTodoHasList)
+        .toList(growable: false);
+    final didRepairTodoLists = normalizedTodos.asMap().entries.any(
+      (entry) => entry.value.listId != effectiveTodos[entry.key].listId,
+    );
 
     _todos
       ..clear()
-      ..addAll(effectiveTodos);
+      ..addAll(normalizedTodos);
     _sortTodos();
     notifyListeners();
 
-    if (persistedTodos.isEmpty && seedIfEmpty) {
+    if ((persistedTodos.isEmpty && seedIfEmpty) || didRepairTodoLists) {
       await _repository.replaceAll(_todos);
     }
 
     await _reminderScheduler.syncTodos(_todos);
   }
 
+  /// Starts notification setup after the first app frame.
+  ///
+  /// First-launch permission prompts and platform plugin initialization must not
+  /// hold up the initial UI. Repeated calls share the same initialization.
+  Future<void> initializeReminderScheduler() {
+    return _reminderInitialization ??= _initializeReminderScheduler();
+  }
+
+  Future<void> _initializeReminderScheduler() async {
+    try {
+      final scheduler = await createTodoReminderScheduler();
+      final previousScheduler = _reminderScheduler;
+      _reminderScheduler = scheduler;
+      await scheduler.syncTodos(List<Todo>.unmodifiable(_todos));
+      await previousScheduler.dispose();
+    } on Object catch (error, stackTrace) {
+      debugPrint('Failed to initialize todo reminders: $error\n$stackTrace');
+    }
+  }
+
   // ── List management ──
 
   void setActiveList(String id) {
-    if (_activeListId == id) return;
+    if (_activeListId == id && !_showingToday) return;
     _activeListId = id;
+    _showingToday = false;
     _searchQuery = '';
     notifyListeners();
     unawaited(_listRepository.saveActiveListId(id));
+  }
+
+  void showToday() {
+    if (_showingToday) return;
+    _showingToday = true;
+    _searchQuery = '';
+    notifyListeners();
   }
 
   void saveTodoList(TodoList list) {
@@ -166,13 +231,28 @@ class TodoProvider extends ChangeNotifier {
   }
 
   void deleteTodoList(String id) {
+    if (id == TodoList.inboxId) return;
+    final inboxId = _inboxListId;
+    if (inboxId == null) return;
+
+    final reassignedTodos = <Todo>[];
+    for (var index = 0; index < _todos.length; index++) {
+      final todo = _todos[index];
+      if (todo.listId != id) continue;
+      final reassigned = todo.copyWith(listId: inboxId);
+      _todos[index] = reassigned;
+      reassignedTodos.add(reassigned);
+    }
     _lists.removeWhere((l) => l.id == id);
     if (_activeListId == id) {
-      _activeListId = _lists.isNotEmpty ? _lists.first.id : '';
+      _activeListId = inboxId;
       unawaited(_listRepository.saveActiveListId(_activeListId));
     }
     notifyListeners();
     unawaited(_listRepository.deleteList(id));
+    for (final todo in reassignedTodos) {
+      unawaited(_persistUpsert(todo));
+    }
   }
 
   void reorderLists(int oldIndex, int newIndex) {
@@ -187,6 +267,7 @@ class TodoProvider extends ChangeNotifier {
   }
 
   void moveTodoToList(String todoId, String targetListId) {
+    if (!_lists.any((list) => list.id == targetListId)) return;
     final index = _todos.indexWhere((t) => t.id == todoId);
     if (index == -1) return;
     final updated = _todos[index].copyWith(listId: targetListId);
@@ -222,19 +303,21 @@ class TodoProvider extends ChangeNotifier {
   }
 
   void addTodo(Todo todo) {
-    _todos.add(todo);
+    final normalizedTodo = _ensureTodoHasList(todo);
+    _todos.add(normalizedTodo);
     _sortTodos();
     notifyListeners();
-    unawaited(_persistUpsert(todo));
+    unawaited(_persistUpsert(normalizedTodo));
   }
 
   void updateTodo(Todo updatedTodo) {
     final index = _todos.indexWhere((todo) => todo.id == updatedTodo.id);
     if (index == -1) return;
-    _todos[index] = updatedTodo;
+    final normalizedTodo = _ensureTodoHasList(updatedTodo);
+    _todos[index] = normalizedTodo;
     _sortTodos();
     notifyListeners();
-    unawaited(_persistUpsert(updatedTodo));
+    unawaited(_persistUpsert(normalizedTodo));
   }
 
   void saveTodo(Todo todo) {
@@ -247,7 +330,9 @@ class TodoProvider extends ChangeNotifier {
   }
 
   List<Todo> removeTodo(String id) {
-    final removed = _todos.where((todo) => todo.id == id).toList(growable: false);
+    final removed = _todos
+        .where((todo) => todo.id == id)
+        .toList(growable: false);
     if (removed.isEmpty) return removed;
     _todos.removeWhere((todo) => todo.id == id);
     notifyListeners();
@@ -317,7 +402,10 @@ class TodoProvider extends ChangeNotifier {
       if (!idsToComplete.contains(current.id) || current.isCompleted) continue;
       final updated = current.copyWith(
         isCompleted: true,
-        sortOrder: _nextSortOrder(TodoBucket.completed, excludingId: current.id),
+        sortOrder: _nextSortOrder(
+          TodoBucket.completed,
+          excludingId: current.id,
+        ),
       );
       _todos[index] = updated;
       updatedTodos.add(updated);
@@ -459,10 +547,12 @@ class TodoProvider extends ChangeNotifier {
   }
 
   int _nextSortOrder(TodoBucket bucket, {String? excludingId}) {
-    final bucketTodos = _todos.where((todo) {
-      if (excludingId != null && todo.id == excludingId) return false;
-      return todo.listId == _activeListId && _bucketFor(todo) == bucket;
-    }).toList(growable: false);
+    final bucketTodos = _todos
+        .where((todo) {
+          if (excludingId != null && todo.id == excludingId) return false;
+          return todo.listId == _activeListId && _bucketFor(todo) == bucket;
+        })
+        .toList(growable: false);
     if (bucketTodos.isEmpty) return 0;
     return bucketTodos
             .map((todo) => todo.sortOrder)
@@ -471,53 +561,61 @@ class TodoProvider extends ChangeNotifier {
   }
 
   List<Todo> _todosForBucket(TodoBucket bucket, {bool includeSearch = true}) {
-    final source = includeSearch ? filteredTodos : _todos.where((t) => t.listId == _activeListId).toList();
+    final source = includeSearch
+        ? filteredTodos
+        : _todos.where((t) => t.listId == _activeListId).toList();
     return List<Todo>.unmodifiable(
       source.where((todo) => _bucketFor(todo) == bucket),
     );
   }
 
+  List<Todo> _todayTodosForBucket({TodoBucket? bucket}) {
+    final today = DateTime.now();
+    final visibleTodos = _todos.where(
+      (todo) =>
+          !todo.isCompleted &&
+          (_isSameDay(todo.reminderTime, today) ||
+              _isSameDay(todo.deadline, today)),
+    );
+    final query = _searchQuery.trim().toLowerCase();
+    final matchingTodos = query.isEmpty
+        ? visibleTodos
+        : visibleTodos.where(
+            (todo) => _buildSearchableText(todo).contains(query),
+          );
+    return List<Todo>.unmodifiable(
+      matchingTodos.where(
+        (todo) => bucket == null || _bucketFor(todo) == bucket,
+      ),
+    );
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  String? get _inboxListId => _lists
+      .cast<TodoList?>()
+      .firstWhere((list) => list?.isInbox ?? false, orElse: () => null)
+      ?.id;
+
+  Todo _ensureTodoHasList(Todo todo) {
+    if (_lists.any((list) => list.id == todo.listId)) return todo;
+    return todo.copyWith(listId: _inboxListId ?? TodoList.inboxId);
+  }
+
   static List<TodoList> _buildSeedLists() {
     return [
       TodoList(
-        id: 'personal',
-        name: 'Personal',
-        iconCodePoint: Icons.person_rounded.codePoint,
+        id: TodoList.inboxId,
+        name: 'Inbox',
+        iconCodePoint: Icons.inbox_rounded.codePoint,
         colorValue: 0xFF1D7860,
         sortOrder: 0,
-      ),
-      TodoList(
-        id: 'work',
-        name: 'Work',
-        iconCodePoint: Icons.work_rounded.codePoint,
-        colorValue: 0xFF8F4E00,
-        sortOrder: 1,
-      ),
-      TodoList(
-        id: 'study',
-        name: 'Study',
-        iconCodePoint: Icons.school_rounded.codePoint,
-        colorValue: 0xFF2B5EB8,
-        sortOrder: 2,
-      ),
-      TodoList(
-        id: 'health',
-        name: 'Health',
-        iconCodePoint: Icons.favorite_rounded.codePoint,
-        colorValue: 0xFFB83625,
-        sortOrder: 3,
-      ),
-      TodoList(
-        id: 'ideas',
-        name: 'Ideas',
-        iconCodePoint: Icons.lightbulb_rounded.codePoint,
-        colorValue: 0xFF7540B8,
-        sortOrder: 4,
       ),
     ];
   }
 
-  static List<Todo> _buildSeedTodos({String defaultListId = 'personal'}) {
+  static List<Todo> _buildSeedTodos({String defaultListId = TodoList.inboxId}) {
     final now = DateTime.now();
     return [
       Todo(
@@ -538,7 +636,8 @@ class TodoProvider extends ChangeNotifier {
         id: 'seed-2',
         listId: defaultListId,
         title: 'Design review',
-        content: 'Confirm motion, spacing and edge-case handling for the popup.',
+        content:
+            'Confirm motion, spacing and edge-case handling for the popup.',
         reminderTime: now.add(const Duration(hours: 3)),
         deadline: now.add(const Duration(days: 1)),
         remindDaysBeforeDDL: 1,

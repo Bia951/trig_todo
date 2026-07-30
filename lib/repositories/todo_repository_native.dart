@@ -42,7 +42,8 @@ class IsarTodoRepository extends TodoRepository {
     try {
       if (await _listMapFile.exists()) {
         final decoded =
-            jsonDecode(await _listMapFile.readAsString()) as Map<String, dynamic>;
+            jsonDecode(await _listMapFile.readAsString())
+                as Map<String, dynamic>;
         _listIdCache = decoded.cast<String, String>();
       }
     } catch (_) {}
@@ -82,10 +83,12 @@ class IsarTodoRepository extends TodoRepository {
   Future<List<Todo>> loadTodos() async {
     await _loadCache();
     final records = await _isar.todoRecords.where().findAll();
-    return records.map((record) {
-      record.listId = _listIdCache[record.todoId] ?? 'personal';
-      return record.toTodo();
-    }).toList(growable: false);
+    return records
+        .map((record) {
+          record.listId = _listIdCache[record.todoId] ?? 'inbox';
+          return record.toTodo();
+        })
+        .toList(growable: false);
   }
 
   @override

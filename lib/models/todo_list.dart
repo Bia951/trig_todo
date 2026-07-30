@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class TodoList {
+  static const String inboxId = 'inbox';
+
   const TodoList({
     required this.id,
     required this.name,
@@ -17,6 +19,10 @@ class TodoList {
 
   IconData get icon => IconData(iconCodePoint, fontFamily: 'MaterialIcons');
   Color get color => Color(colorValue);
+  bool get isInbox => id == inboxId;
+
+  Color colorFor(ColorScheme colorScheme) =>
+      isInbox ? colorScheme.primary : color;
 
   static List<IconData> get availableIcons => [
     Icons.work_rounded,

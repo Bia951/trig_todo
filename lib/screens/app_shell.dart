@@ -24,10 +24,7 @@ class _MobileLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      drawer: const AppDrawer(),
-      body: const HomeScreen(),
-    );
+    return Scaffold(drawer: const AppDrawer(), body: const HomeScreen());
   }
 }
 
@@ -40,9 +37,7 @@ class _DesktopLayout extends StatelessWidget {
     return Scaffold(
       body: Row(
         children: [
-          AppSidebar(
-            onSettingsTap: () {},
-          ),
+          const AppSidebar(),
           VerticalDivider(
             width: 1,
             thickness: 1,

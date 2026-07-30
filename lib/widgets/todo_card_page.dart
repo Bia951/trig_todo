@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/todo.dart';
@@ -84,7 +85,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
       _draft = _draft.copyWith(isMuted: !_draft.isMuted);
     });
 
-    if (_isDraft) {
+    if (_isDraft || _isEditing) {
       return;
     }
 
@@ -158,253 +159,267 @@ class _TodoCardPageState extends State<TodoCardPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Material(
-      type: MaterialType.transparency,
-      child: ColoredBox(
-        color: theme.colorScheme.scrim.withValues(alpha: 0.22),
-        child: SafeArea(
-          child: AnimatedPadding(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.fromLTRB(
-              20,
-              20,
-              20,
-              MediaQuery.of(context).viewInsets.bottom + 20,
-            ),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _close,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final maxCardHeight = math.max(0.0, constraints.maxHeight);
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          _close();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Material(
+        type: MaterialType.transparency,
+        child: ColoredBox(
+          color: theme.colorScheme.scrim.withValues(alpha: 0.22),
+          child: SafeArea(
+            child: AnimatedPadding(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              padding: EdgeInsets.fromLTRB(
+                20,
+                20,
+                20,
+                MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _close,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final maxCardHeight = math.max(0.0, constraints.maxHeight);
 
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 760),
-                      child: GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: _dismissKeyboard,
-                        child: Card(
-                          clipBehavior: Clip.antiAlias,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight: maxCardHeight,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Flexible(
-                                  child: SingleChildScrollView(
-                                    keyboardDismissBehavior:
-                                        ScrollViewKeyboardDismissBehavior.onDrag,
-                                    padding: const EdgeInsets.fromLTRB(
-                                      24,
-                                      18,
-                                      24,
-                                      20,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        _CardHeader(
-                                          isMuted: _draft.isMuted,
-                                          title: _isEditing
-                                              ? (_titleController.text
-                                                    .trim()
-                                                    .isEmpty
-                                                    ? 'Todo'
-                                                    : _titleController.text
-                                                          .trim())
-                                              : _draft.presentationTitle,
-                                          onMutePressed: _toggleMute,
-                                          onEditPressed: _enterEditMode,
-                                          onClosePressed: _close,
-                                        ),
-                                        const SizedBox(height: 20),
-                                        if (_isEditing) ...[
-                                          TextField(
-                                            controller: _titleController,
-                                            onChanged: (_) => setState(() {}),
-                                            onTapOutside: (_) =>
-                                                _dismissKeyboard(),
-                                            textInputAction:
-                                                TextInputAction.next,
-                                            decoration: const InputDecoration(
-                                              hintText: 'Untitled todo',
-                                            ),
+                    return Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _dismissKeyboard,
+                          child: Card(
+                            clipBehavior: Clip.antiAlias,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: maxCardHeight,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Flexible(
+                                    child: SingleChildScrollView(
+                                      keyboardDismissBehavior:
+                                          ScrollViewKeyboardDismissBehavior
+                                              .onDrag,
+                                      padding: const EdgeInsets.fromLTRB(
+                                        24,
+                                        18,
+                                        24,
+                                        20,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          _CardHeader(
+                                            isMuted: _draft.isMuted,
+                                            title: _isEditing
+                                                ? (_titleController.text
+                                                          .trim()
+                                                          .isEmpty
+                                                      ? 'Todo'
+                                                      : _titleController.text
+                                                            .trim())
+                                                : _draft.presentationTitle,
+                                            onMutePressed: _toggleMute,
+                                            onEditPressed: _enterEditMode,
+                                            onClosePressed: _close,
                                           ),
-                                          const SizedBox(height: 16),
-                                          TextField(
-                                            controller: _contentController,
-                                            onTapOutside: (_) =>
-                                                _dismissKeyboard(),
-                                            minLines: 3,
-                                            maxLines: 5,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Content',
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          TextField(
-                                            controller: _notesController,
-                                            onTapOutside: (_) =>
-                                                _dismissKeyboard(),
-                                            minLines: 2,
-                                            maxLines: 4,
-                                            decoration: const InputDecoration(
-                                              labelText: 'Notes',
-                                            ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                          _EditableMetaTile(
-                                            icon: Icons.schedule,
-                                            label: 'Reminder time',
-                                            value: _formatDateTime(
-                                              context,
-                                              _draft.reminderTime,
-                                            ),
-                                            onPressed: () => _pickDateTime(
-                                              current: _draft.reminderTime,
-                                              updater: (dt) => _draft.copyWith(
-                                                reminderTime: dt,
+                                          const SizedBox(height: 20),
+                                          if (_isEditing) ...[
+                                            TextField(
+                                              controller: _titleController,
+                                              onChanged: (_) => setState(() {}),
+                                              onTapOutside: (_) =>
+                                                  _dismissKeyboard(),
+                                              textInputAction:
+                                                  TextInputAction.next,
+                                              decoration: const InputDecoration(
+                                                hintText: 'Untitled todo',
                                               ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _EditableMetaTile(
-                                            icon: Icons.event,
-                                            label: 'Deadline',
-                                            value: _formatDateTime(
-                                              context,
-                                              _draft.deadline,
+                                            const SizedBox(height: 16),
+                                            TextField(
+                                              controller: _contentController,
+                                              onTapOutside: (_) =>
+                                                  _dismissKeyboard(),
+                                              minLines: 3,
+                                              maxLines: 5,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Content',
+                                              ),
                                             ),
-                                            onPressed: () => _pickDateTime(
-                                              current: _draft.deadline,
-                                              updater: (dt) =>
-                                                  _draft.copyWith(deadline: dt),
+                                            const SizedBox(height: 16),
+                                            TextField(
+                                              controller: _notesController,
+                                              onTapOutside: (_) =>
+                                                  _dismissKeyboard(),
+                                              minLines: 2,
+                                              maxLines: 4,
+                                              decoration: const InputDecoration(
+                                                labelText: 'Notes',
+                                              ),
                                             ),
-                                          ),
-                                          const SizedBox(height: 16),
-                                        ] else ...[
-                                          _ReadOnlySection(
-                                            label: 'Content',
-                                            value: _draft.content,
-                                            icon: Icons.subject,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ReadOnlySection(
-                                            label: 'Notes',
-                                            value: _draft.notes,
-                                            icon: Icons.sticky_note_2_outlined,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ReadOnlySection(
-                                            label: 'Reminder time',
-                                            value: _formatDateTime(
-                                              context,
-                                              _draft.reminderTime,
+                                            const SizedBox(height: 16),
+                                            _EditableMetaTile(
+                                              icon: Icons.schedule,
+                                              label: 'Reminder time',
+                                              value: _formatDateTime(
+                                                context,
+                                                _draft.reminderTime,
+                                              ),
+                                              onPressed: () => _pickDateTime(
+                                                current: _draft.reminderTime,
+                                                updater: (dt) => _draft
+                                                    .copyWith(reminderTime: dt),
+                                              ),
                                             ),
-                                            icon: Icons.schedule,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ReadOnlySection(
-                                            label: 'Deadline',
-                                            value: _formatDateTime(
-                                              context,
-                                              _draft.deadline,
-                                            ),
-                                            icon: Icons.event,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ReadOnlySection(
-                                            label: 'Days before DDL alert',
-                                            value:
-                                                _draft.remindDaysBeforeDDL == 0
-                                                ? 'Off'
-                                                : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
-                                            icon:
-                                                _draft.remindDaysBeforeDDL == 0
-                                                ? Icons
-                                                      .notifications_none_rounded
-                                                : Icons.notifications_rounded,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          _ReadOnlySection(
-                                            label: 'Muted',
-                                            value: _draft.isMuted
-                                                ? 'Muted'
-                                                : 'Active',
-                                            icon: _draft.isMuted
-                                                ? Icons
-                                                      .notifications_off_outlined
-                                                : Icons.notifications_rounded,
-                                          ),
-                                          if (!_isDraft) ...[
                                             const SizedBox(height: 12),
-                                            _MoveTile(
-                                              todoId: _draft.id,
-                                              currentListId: _draft.listId,
+                                            _EditableMetaTile(
+                                              icon: Icons.event,
+                                              label: 'Deadline',
+                                              value: _formatDateTime(
+                                                context,
+                                                _draft.deadline,
+                                              ),
+                                              onPressed: () => _pickDateTime(
+                                                current: _draft.deadline,
+                                                updater: (dt) => _draft
+                                                    .copyWith(deadline: dt),
+                                              ),
                                             ),
+                                            const SizedBox(height: 16),
+                                          ] else ...[
+                                            _ReadOnlySection(
+                                              label: 'Content',
+                                              value: _draft.content,
+                                              icon: Icons.subject,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Notes',
+                                              value: _draft.notes,
+                                              icon:
+                                                  Icons.sticky_note_2_outlined,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Reminder time',
+                                              value: _formatDateTime(
+                                                context,
+                                                _draft.reminderTime,
+                                              ),
+                                              icon: Icons.schedule,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Deadline',
+                                              value: _formatDateTime(
+                                                context,
+                                                _draft.deadline,
+                                              ),
+                                              icon: Icons.event,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Days before DDL alert',
+                                              value:
+                                                  _draft.remindDaysBeforeDDL ==
+                                                      0
+                                                  ? 'Off'
+                                                  : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                              icon:
+                                                  _draft.remindDaysBeforeDDL ==
+                                                      0
+                                                  ? Icons
+                                                        .notifications_none_rounded
+                                                  : Icons.notifications_rounded,
+                                            ),
+                                            const SizedBox(height: 12),
+                                            _ReadOnlySection(
+                                              label: 'Muted',
+                                              value: _draft.isMuted
+                                                  ? 'Muted'
+                                                  : 'Active',
+                                              icon: _draft.isMuted
+                                                  ? Icons
+                                                        .notifications_off_outlined
+                                                  : Icons.notifications_rounded,
+                                            ),
+                                            if (!_isDraft) ...[
+                                              const SizedBox(height: 12),
+                                              _MoveTile(
+                                                todoId: _draft.id,
+                                                currentListId: _draft.listId,
+                                              ),
+                                            ],
                                           ],
-                                        ],
-                                        AnimatedSwitcher(
-                                          duration: const Duration(
-                                            milliseconds: 240,
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 240,
+                                            ),
+                                            switchInCurve: Curves.easeOutCubic,
+                                            switchOutCurve: Curves.easeInCubic,
+                                            transitionBuilder:
+                                                (child, animation) {
+                                                  return SizeTransition(
+                                                    sizeFactor: animation,
+                                                    axisAlignment: -1,
+                                                    child: child,
+                                                  );
+                                                },
+                                            child: _isEditing
+                                                ? _ReminderLeadSlider(
+                                                    key: const ValueKey(
+                                                      'lead-slider',
+                                                    ),
+                                                    value: _draft
+                                                        .remindDaysBeforeDDL,
+                                                    onChanged: (value) {
+                                                      setState(() {
+                                                        _draft = _draft.copyWith(
+                                                          remindDaysBeforeDDL:
+                                                              value,
+                                                        );
+                                                      });
+                                                    },
+                                                  )
+                                                : const SizedBox.shrink(
+                                                    key: ValueKey(
+                                                      'slider-hidden',
+                                                    ),
+                                                  ),
                                           ),
-                                          switchInCurve: Curves.easeOutCubic,
-                                          switchOutCurve: Curves.easeInCubic,
-                                          transitionBuilder:
-                                              (child, animation) {
-                                                return SizeTransition(
-                                                  sizeFactor: animation,
-                                                  axisAlignment: -1,
-                                                  child: child,
-                                                );
-                                              },
-                                          child: _isEditing
-                                              ? _ReminderLeadSlider(
-                                                  key: const ValueKey(
-                                                    'lead-slider',
-                                                  ),
-                                                  value: _draft
-                                                      .remindDaysBeforeDDL,
-                                                  onChanged: (value) {
-                                                    setState(() {
-                                                      _draft = _draft.copyWith(
-                                                        remindDaysBeforeDDL:
-                                                            value,
-                                                      );
-                                                    });
-                                                  },
-                                                )
-                                              : const SizedBox.shrink(
-                                                  key: ValueKey(
-                                                    'slider-hidden',
-                                                  ),
-                                                ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                                _CardFooter(
-                                  isEditing: _isEditing,
-                                  isNew: _isDraft,
-                                  onBackPressed: _close,
-                                  onDeletePressed: _delete,
-                                  onSavePressed: _save,
-                                ),
-                              ],
+                                  _CardFooter(
+                                    isEditing: _isEditing,
+                                    isNew: _isDraft,
+                                    onBackPressed: _close,
+                                    onDeletePressed: _delete,
+                                    onSavePressed: _save,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -412,6 +427,7 @@ class _TodoCardPageState extends State<TodoCardPage> {
       ),
     );
   }
+
   String _formatDateTime(BuildContext context, DateTime value) {
     final localizations = MaterialLocalizations.of(context);
     final date = localizations.formatMediumDate(value);
@@ -624,9 +640,9 @@ class _MoveTile extends StatelessWidget {
     final theme = Theme.of(context);
     final lists = context.watch<TodoProvider>().lists;
     final currentList = lists.where((l) => l.id == currentListId).firstOrNull;
-    final listName = currentList?.name ?? 'Personal';
+    final listName = currentList?.name ?? 'Inbox';
     final listIcon = currentList?.icon;
-    final listColor = currentList?.color;
+    final listColor = currentList?.colorFor(theme.colorScheme);
 
     return Material(
       color: theme.colorScheme.surfaceContainer,
@@ -721,7 +737,7 @@ class _CardFooter extends StatelessWidget {
                   TextButton.icon(
                     onPressed: onBackPressed,
                     icon: const Icon(Icons.arrow_back_rounded, size: 18),
-                    label: const Text('Back'),
+                    label: const Text('Cancel'),
                   ),
                   const Spacer(),
                   if (!isNew) ...[

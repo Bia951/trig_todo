@@ -59,6 +59,7 @@ class ManageListsScreen extends StatelessWidget {
                   context.read<TodoProvider>().reorderLists(oldIndex, newIndex),
               itemBuilder: (context, index) {
                 final list = lists[index];
+                final listColor = list.colorFor(theme.colorScheme);
                 final pendingCount = provider.countForList(list.id);
                 final allTodos = provider.todos;
                 final doneCount = allTodos
@@ -99,12 +100,12 @@ class ManageListsScreen extends StatelessWidget {
                               width: 38,
                               height: 38,
                               decoration: BoxDecoration(
-                                color: list.color.withValues(alpha: 0.15),
+                                color: listColor.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Icon(
                                 list.icon,
-                                color: list.color,
+                                color: listColor,
                                 size: 21,
                               ),
                             ),
@@ -115,18 +116,15 @@ class ManageListsScreen extends StatelessWidget {
                                 children: [
                                   Text(
                                     list.name,
-                                    style:
-                                        theme.textTheme.bodyLarge?.copyWith(
+                                    style: theme.textTheme.bodyLarge?.copyWith(
                                       fontWeight: FontWeight.w700,
                                       fontSize: 16,
                                     ),
                                   ),
                                   Text(
                                     '$pendingCount pending · $doneCount done',
-                                    style:
-                                        theme.textTheme.bodySmall?.copyWith(
-                                      color:
-                                          theme.colorScheme.onSurfaceVariant,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
                                     ),
                                   ),
                                 ],
@@ -137,7 +135,7 @@ class ManageListsScreen extends StatelessWidget {
                               width: 18,
                               height: 18,
                               decoration: BoxDecoration(
-                                color: list.color,
+                                color: listColor,
                                 shape: BoxShape.circle,
                               ),
                             ),

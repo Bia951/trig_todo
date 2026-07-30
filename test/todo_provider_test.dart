@@ -1,6 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:trig_todo/models/todo.dart';
+import 'package:trig_todo/models/todo_list.dart';
 import 'package:trig_todo/providers/todo_provider.dart';
+import 'package:trig_todo/repositories/in_memory_todo_list_repository.dart';
+import 'package:trig_todo/repositories/in_memory_todo_repository.dart';
 
 void main() {
   Todo buildTodo({required String id, required String title}) {
@@ -16,7 +20,7 @@ void main() {
       isCompleted: false,
       isStarred: false,
       sortOrder: int.parse(id),
-      listId: 'personal',
+      listId: TodoList.inboxId,
     );
   }
 
@@ -29,6 +33,97 @@ void main() {
 
     provider.saveTodo(todo.copyWith(title: 'Updated first'));
     expect(provider.todos.single.title, 'Updated first');
+  });
+
+  test('defaults to one inbox list', () {
+    final provider = TodoProvider(initialTodos: []);
+
+    expect(provider.lists, hasLength(1));
+    expect(provider.lists.single.id, TodoList.inboxId);
+    expect(provider.lists.single.name, 'Inbox');
+  });
+
+  test('hydrates orphaned todos into Inbox', () async {
+    final repository = InMemoryTodoRepository(
+      initialTodos: [
+        buildTodo(id: '1', title: 'Legacy').copyWith(listId: 'personal'),
+      ],
+    );
+    final provider = TodoProvider(
+      initialTodos: const <Todo>[],
+      repository: repository,
+      listRepository: InMemoryTodoListRepository(),
+    );
+
+    await provider.hydrate();
+
+    expect(provider.todos.single.listId, TodoList.inboxId);
+    expect((await repository.loadTodos()).single.listId, TodoList.inboxId);
+  });
+
+  test('deleting a list moves its todos to Inbox', () {
+    final inbox = TodoList(
+      id: TodoList.inboxId,
+      name: 'Inbox',
+      iconCodePoint: Icons.inbox_rounded.codePoint,
+      colorValue: 0xFF1D7860,
+    );
+    final work = TodoList(
+      id: 'work',
+      name: 'Work',
+      iconCodePoint: Icons.work_rounded.codePoint,
+      colorValue: 0xFF8F4E00,
+    );
+    final provider = TodoProvider(
+      initialLists: [inbox, work],
+      initialActiveListId: 'work',
+      initialTodos: [
+        buildTodo(id: '1', title: 'Move me').copyWith(listId: 'work'),
+      ],
+    );
+
+    provider.deleteTodoList('work');
+
+    expect(provider.lists, [inbox]);
+    expect(provider.activeListId, TodoList.inboxId);
+    expect(provider.todos.single.listId, TodoList.inboxId);
+
+    provider.deleteTodoList(TodoList.inboxId);
+    expect(provider.lists, [inbox]);
+  });
+
+  test('Today shows incomplete todos with a reminder or deadline today', () {
+    final clock = DateTime.now();
+    final now = DateTime(clock.year, clock.month, clock.day, 10);
+    final provider = TodoProvider(
+      initialTodos: [
+        buildTodo(id: '1', title: 'Reminder today').copyWith(
+          reminderTime: now.add(const Duration(hours: 1)),
+          deadline: now.add(const Duration(days: 2)),
+        ),
+        buildTodo(id: '2', title: 'Deadline today').copyWith(
+          reminderTime: now.add(const Duration(days: 2)),
+          deadline: now.add(const Duration(hours: 2)),
+        ),
+        buildTodo(id: '3', title: 'Completed today').copyWith(
+          reminderTime: now.add(const Duration(hours: 1)),
+          isCompleted: true,
+        ),
+        buildTodo(id: '4', title: 'Later').copyWith(
+          reminderTime: now.add(const Duration(days: 2)),
+          deadline: now.add(const Duration(days: 3)),
+        ),
+      ],
+    );
+
+    provider.showToday();
+
+    expect(provider.showingToday, isTrue);
+    expect(provider.todayTodos.map((todo) => todo.id), ['1', '2']);
+    expect(provider.todayTodoCount, 2);
+
+    provider.setActiveList(TodoList.inboxId);
+    expect(provider.showingToday, isFalse);
   });
 
   test('createDraft defaults reminder to one hour and deadline to one day', () {
