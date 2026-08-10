@@ -10,8 +10,9 @@ import 'todo_reminder_scheduler.dart';
 
 const _channelId = 'trig.todo.reminders';
 const _channelName = 'Trig Todo reminders';
-const _channelDescription = 'Task reminders and deadline alerts from Trig.';
+const _channelDescription = 'Task and daily-agenda reminders from Trig.';
 const _windowsGuid = 'd6eb1a4d-0141-4738-b875-b9d06b4d6a11';
+const _dailyAgendaNotificationId = 702146;
 
 Future<TodoReminderScheduler> createPlatformTodoReminderScheduler() async {
   final scheduler = LocalNotificationTodoReminderScheduler();
@@ -84,57 +85,38 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
 
     await cancelTodo(todo.id);
 
-    if (todo.isMuted || todo.isCompleted) {
+    if (todo.isCompleted) {
       return;
     }
 
     final now = tz.TZDateTime.now(tz.local);
     final reminderMoment = tz.TZDateTime.from(todo.reminderTime, tz.local);
-    final deadlineMoment = tz.TZDateTime.from(todo.deadline, tz.local);
-
-    // 1) Reminder time notification
-    if (reminderMoment.isAfter(now)) {
+    if (!todo.isMuted && reminderMoment.isAfter(now)) {
       await _schedule(
         id: _notificationId(todo.id, 0),
-        title: 'Reminder: ${todo.presentationTitle}',
+        title: todo.presentationTitle,
         body: _primaryBody(todo),
         when: reminderMoment,
       );
     }
 
-    // 2) Deadline notification
-    final isDistinctDeadlineAlert =
-        deadlineMoment.millisecondsSinceEpoch !=
+    final leadMinutes = todo.deadlineHeadsUpMinutes.clamp(0, 525600).toInt();
+    if (leadMinutes == 0) return;
+
+    final deadlineHeadsUp = tz.TZDateTime.from(
+      todo.deadline.subtract(Duration(minutes: leadMinutes)),
+      tz.local,
+    );
+    final isDuplicate =
+        deadlineHeadsUp.millisecondsSinceEpoch ==
         reminderMoment.millisecondsSinceEpoch;
-    if (deadlineMoment.isAfter(now) && isDistinctDeadlineAlert) {
+    if (deadlineHeadsUp.isAfter(now) && !isDuplicate) {
       await _schedule(
         id: _notificationId(todo.id, 1),
-        title: 'Deadline alert: ${todo.presentationTitle}',
+        title: 'Deadline soon: ${todo.presentationTitle}',
         body: _deadlineBody(todo),
-        when: deadlineMoment,
+        when: deadlineHeadsUp,
       );
-    }
-
-    // 3) Days-before-ddl notification (only when leadDays > 0)
-    final leadDays = todo.remindDaysBeforeDDL.clamp(0, 365).toInt();
-    if (leadDays > 0) {
-      final aheadMoment = tz.TZDateTime.from(
-        todo.deadline.subtract(Duration(days: leadDays)),
-        tz.local,
-      );
-      final isDistinct =
-          aheadMoment.millisecondsSinceEpoch !=
-              reminderMoment.millisecondsSinceEpoch &&
-          aheadMoment.millisecondsSinceEpoch !=
-              deadlineMoment.millisecondsSinceEpoch;
-      if (aheadMoment.isAfter(now) && isDistinct) {
-        await _schedule(
-          id: _notificationId(todo.id, 2),
-          title: '$leadDays d before deadline: ${todo.presentationTitle}',
-          body: _primaryBody(todo),
-          when: aheadMoment,
-        );
-      }
     }
   }
 
@@ -150,6 +132,27 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
     }
   }
 
+  @override
+  Future<void> syncDailyAgenda({required bool enabled}) async {
+    if (!_supportsScheduling) return;
+
+    await _plugin.cancel(id: _dailyAgendaNotificationId);
+    if (!enabled) return;
+
+    final now = tz.TZDateTime.now(tz.local);
+    var next = tz.TZDateTime(tz.local, now.year, now.month, now.day, 9);
+    if (!next.isAfter(now)) {
+      next = next.add(const Duration(days: 1));
+    }
+    await _schedule(
+      id: _dailyAgendaNotificationId,
+      title: 'Today in Trig',
+      body: 'Open Trig to review today’s tasks.',
+      when: next,
+      matchDateTimeComponents: DateTimeComponents.time,
+    );
+  }
+
   Future<void> _configureLocalTimezone() async {
     final timezoneInfo = await FlutterTimezone.getLocalTimezone();
     try {
@@ -160,18 +163,10 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
   }
 
   String _deadlineBody(Todo todo) {
-    final suffix = _primaryBody(todo);
     final deadlineMoment = tz.TZDateTime.from(todo.deadline, tz.local);
-    final formattedMoment = _formatMoment(deadlineMoment);
-    return 'Due by $formattedMoment. $suffix';
-  }
-
-  String _formatMoment(tz.TZDateTime moment) {
-    final month = moment.month.toString().padLeft(2, '0');
-    final day = moment.day.toString().padLeft(2, '0');
-    final hour = moment.hour.toString().padLeft(2, '0');
-    final minute = moment.minute.toString().padLeft(2, '0');
-    return '${moment.year}-$month-$day $hour:$minute';
+    final date =
+        '${deadlineMoment.year}-${deadlineMoment.month.toString().padLeft(2, '0')}-${deadlineMoment.day.toString().padLeft(2, '0')}';
+    return 'Deadline: $date. ${_primaryBody(todo)}';
   }
 
   int _notificationId(String todoId, int slot) {
@@ -224,6 +219,7 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
     required String title,
     required String body,
     required tz.TZDateTime when,
+    DateTimeComponents? matchDateTimeComponents,
   }) async {
     await _plugin.zonedSchedule(
       id: id,
@@ -248,6 +244,7 @@ class LocalNotificationTodoReminderScheduler implements TodoReminderScheduler {
       androidScheduleMode: _androidAllowsExactAlarms
           ? AndroidScheduleMode.exactAllowWhileIdle
           : AndroidScheduleMode.inexactAllowWhileIdle,
+      matchDateTimeComponents: matchDateTimeComponents,
     );
   }
 }

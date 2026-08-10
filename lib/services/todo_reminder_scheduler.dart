@@ -7,6 +7,8 @@ abstract class TodoReminderScheduler {
 
   Future<void> cancelTodo(String todoId);
 
+  Future<void> syncDailyAgenda({required bool enabled});
+
   Future<void> dispose();
 }
 
@@ -22,4 +24,7 @@ class NoopTodoReminderScheduler implements TodoReminderScheduler {
 
   @override
   Future<void> syncTodos(Iterable<Todo> todos) async {}
+
+  @override
+  Future<void> syncDailyAgenda({required bool enabled}) async {}
 }

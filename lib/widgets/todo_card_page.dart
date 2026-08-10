@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../models/todo.dart';
 import '../providers/todo_provider.dart';
 import 'move_to_list_sheet.dart';
+import 'undo_snackbar.dart';
 
 class TodoCardPage extends StatefulWidget {
   const TodoCardPage({
@@ -15,6 +16,7 @@ class TodoCardPage extends StatefulWidget {
     this.startInEditMode = false,
     this.closeOnSave = false,
     this.heroTag,
+    this.onEditRequested,
     super.key,
   });
 
@@ -23,6 +25,7 @@ class TodoCardPage extends StatefulWidget {
   final bool startInEditMode;
   final bool closeOnSave;
   final Object? heroTag;
+  final VoidCallback? onEditRequested;
 
   @override
   State<TodoCardPage> createState() => _TodoCardPageState();
@@ -80,6 +83,106 @@ class _TodoCardPageState extends State<TodoCardPage> {
     });
   }
 
+  Future<void> _pickDeadlineHeadsUp() async {
+    final initialMinutes = _draft.deadlineHeadsUpMinutes;
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        var enabled = initialMinutes > 0;
+        var days = (initialMinutes ~/ Duration.minutesPerDay)
+            .clamp(0, 30)
+            .toInt();
+        var hours = ((initialMinutes % Duration.minutesPerDay) ~/ 60)
+            .clamp(0, 23)
+            .toInt();
+        if (enabled && days == 0 && hours == 0) hours = 1;
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Deadline heads-up'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: enabled,
+                  title: const Text('Remind before deadline'),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      enabled = value;
+                      if (enabled && days == 0 && hours == 0) hours = 1;
+                    });
+                  },
+                ),
+                if (enabled) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          initialValue: days,
+                          decoration: const InputDecoration(labelText: 'Days'),
+                          items: List<DropdownMenuItem<int>>.generate(
+                            31,
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text('$value'),
+                            ),
+                          ),
+                          onChanged: (value) => setDialogState(() {
+                            days = value ?? 0;
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          initialValue: hours,
+                          decoration: const InputDecoration(labelText: 'Hours'),
+                          items: List<DropdownMenuItem<int>>.generate(
+                            24,
+                            (value) => DropdownMenuItem(
+                              value: value,
+                              child: Text('$value'),
+                            ),
+                          ),
+                          onChanged: (value) => setDialogState(() {
+                            hours = value ?? 0;
+                          }),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final minutes = enabled
+                      ? days * Duration.minutesPerDay + hours * 60
+                      : 0;
+                  Navigator.of(
+                    context,
+                  ).pop(minutes == 0 && enabled ? 60 : minutes);
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _draft = _draft.copyWith(deadlineHeadsUpMinutes: result);
+    });
+  }
+
   void _toggleMute() {
     setState(() {
       _draft = _draft.copyWith(isMuted: !_draft.isMuted);
@@ -93,6 +196,11 @@ class _TodoCardPageState extends State<TodoCardPage> {
   }
 
   void _enterEditMode() {
+    final onEditRequested = widget.onEditRequested;
+    if (onEditRequested != null) {
+      onEditRequested();
+      return;
+    }
     setState(() {
       _isEditing = true;
     });
@@ -134,19 +242,16 @@ class _TodoCardPageState extends State<TodoCardPage> {
     }
 
     final messenger = ScaffoldMessenger.of(context);
+    final theme = Theme.of(context);
     final provider = context.read<TodoProvider>();
     final removed = provider.removeTodo(_draft.id);
     _close();
     if (removed.isNotEmpty) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Deleted "${removed.first.presentationTitle}"'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () => provider.restoreTodos(removed),
-          ),
-          duration: const Duration(seconds: 4),
-        ),
+      showUndoTodoSnackBar(
+        messenger,
+        theme: theme,
+        message: 'Deleted "${removed.first.presentationTitle}"',
+        onUndo: () => provider.restoreTodos(removed),
       );
     }
   }
@@ -271,6 +376,17 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                               ),
                                             ),
                                             const SizedBox(height: 16),
+                                            _ReminderToggleTile(
+                                              enabled: !_draft.isMuted,
+                                              onChanged: (enabled) {
+                                                setState(() {
+                                                  _draft = _draft.copyWith(
+                                                    isMuted: !enabled,
+                                                  );
+                                                });
+                                              },
+                                            ),
+                                            const SizedBox(height: 12),
                                             _EditableMetaTile(
                                               icon: Icons.schedule,
                                               label: 'Reminder time',
@@ -298,8 +414,25 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                                     .copyWith(deadline: dt),
                                               ),
                                             ),
+                                            const SizedBox(height: 12),
+                                            _EditableMetaTile(
+                                              icon: Icons
+                                                  .hourglass_bottom_rounded,
+                                              label: 'Deadline heads-up',
+                                              value: _deadlineHeadsUpLabel(
+                                                _draft.deadlineHeadsUpMinutes,
+                                              ),
+                                              onPressed: _pickDeadlineHeadsUp,
+                                            ),
                                             const SizedBox(height: 16),
                                           ] else ...[
+                                            if (!_isDraft) ...[
+                                              _MoveTile(
+                                                todoId: _draft.id,
+                                                currentListId: _draft.listId,
+                                              ),
+                                              const SizedBox(height: 12),
+                                            ],
                                             _ReadOnlySection(
                                               label: 'Content',
                                               value: _draft.content,
@@ -314,12 +447,14 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                             ),
                                             const SizedBox(height: 12),
                                             _ReadOnlySection(
-                                              label: 'Reminder time',
-                                              value: _formatDateTime(
-                                                context,
-                                                _draft.reminderTime,
-                                              ),
-                                              icon: Icons.schedule,
+                                              label: 'Task reminder',
+                                              value: _draft.isMuted
+                                                  ? 'Off'
+                                                  : 'One alert at ${_formatDateTime(context, _draft.reminderTime)}',
+                                              icon: _draft.isMuted
+                                                  ? Icons
+                                                        .notifications_off_outlined
+                                                  : Icons.notifications_rounded,
                                             ),
                                             const SizedBox(height: 12),
                                             _ReadOnlySection(
@@ -332,74 +467,20 @@ class _TodoCardPageState extends State<TodoCardPage> {
                                             ),
                                             const SizedBox(height: 12),
                                             _ReadOnlySection(
-                                              label: 'Days before DDL alert',
-                                              value:
-                                                  _draft.remindDaysBeforeDDL ==
-                                                      0
-                                                  ? 'Off'
-                                                  : '${_draft.remindDaysBeforeDDL} day${_draft.remindDaysBeforeDDL == 1 ? '' : 's'} before',
+                                              label: 'Deadline heads-up',
+                                              value: _deadlineHeadsUpLabel(
+                                                _draft.deadlineHeadsUpMinutes,
+                                              ),
                                               icon:
-                                                  _draft.remindDaysBeforeDDL ==
+                                                  _draft.deadlineHeadsUpMinutes ==
                                                       0
-                                                  ? Icons
-                                                        .notifications_none_rounded
-                                                  : Icons.notifications_rounded,
-                                            ),
-                                            const SizedBox(height: 12),
-                                            _ReadOnlySection(
-                                              label: 'Muted',
-                                              value: _draft.isMuted
-                                                  ? 'Muted'
-                                                  : 'Active',
-                                              icon: _draft.isMuted
                                                   ? Icons
                                                         .notifications_off_outlined
-                                                  : Icons.notifications_rounded,
+                                                  : Icons
+                                                        .notifications_active_outlined,
                                             ),
-                                            if (!_isDraft) ...[
-                                              const SizedBox(height: 12),
-                                              _MoveTile(
-                                                todoId: _draft.id,
-                                                currentListId: _draft.listId,
-                                              ),
-                                            ],
+                                            const SizedBox(height: 12),
                                           ],
-                                          AnimatedSwitcher(
-                                            duration: const Duration(
-                                              milliseconds: 240,
-                                            ),
-                                            switchInCurve: Curves.easeOutCubic,
-                                            switchOutCurve: Curves.easeInCubic,
-                                            transitionBuilder:
-                                                (child, animation) {
-                                                  return SizeTransition(
-                                                    sizeFactor: animation,
-                                                    axisAlignment: -1,
-                                                    child: child,
-                                                  );
-                                                },
-                                            child: _isEditing
-                                                ? _ReminderLeadSlider(
-                                                    key: const ValueKey(
-                                                      'lead-slider',
-                                                    ),
-                                                    value: _draft
-                                                        .remindDaysBeforeDDL,
-                                                    onChanged: (value) {
-                                                      setState(() {
-                                                        _draft = _draft.copyWith(
-                                                          remindDaysBeforeDDL:
-                                                              value,
-                                                        );
-                                                      });
-                                                    },
-                                                  )
-                                                : const SizedBox.shrink(
-                                                    key: ValueKey(
-                                                      'slider-hidden',
-                                                    ),
-                                                  ),
-                                          ),
                                         ],
                                       ),
                                     ),
@@ -437,6 +518,17 @@ class _TodoCardPageState extends State<TodoCardPage> {
     );
     return '$date, $time';
   }
+
+  String _deadlineHeadsUpLabel(int minutes) {
+    if (minutes <= 0) return 'Off';
+    final days = minutes ~/ Duration.minutesPerDay;
+    final hours = (minutes % Duration.minutesPerDay) ~/ 60;
+    final parts = <String>[
+      if (days > 0) '$days day${days == 1 ? '' : 's'}',
+      if (hours > 0) '$hours hour${hours == 1 ? '' : 's'}',
+    ];
+    return '${parts.join(' ')} before the deadline';
+  }
 }
 
 class _CardHeader extends StatelessWidget {
@@ -468,7 +560,9 @@ class _CardHeader extends StatelessWidget {
             children: [
               IconButton.filledTonal(
                 onPressed: onMutePressed,
-                tooltip: isMuted ? 'Unmute reminder' : 'Mute reminder',
+                tooltip: isMuted
+                    ? 'Enable task reminder'
+                    : 'Disable task reminder',
                 style: _headerActionStyle(context),
                 icon: Icon(
                   isMuted
@@ -545,6 +639,10 @@ class _EditableMetaTile extends StatelessWidget {
       child: InkWell(
         onTap: onPressed,
         borderRadius: BorderRadius.circular(20),
+        hoverColor: Colors.white.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.12 : 0.28,
+        ),
+        highlightColor: Colors.white.withValues(alpha: 0.16),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Row(
@@ -654,6 +752,10 @@ class _MoveTile extends StatelessWidget {
           currentListId: currentListId,
         ),
         borderRadius: BorderRadius.circular(20),
+        hoverColor: Colors.white.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.18 : 0.34,
+        ),
+        highlightColor: Colors.white.withValues(alpha: 0.2),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           child: Row(
@@ -764,54 +866,62 @@ class _CardFooter extends StatelessWidget {
   }
 }
 
-class _ReminderLeadSlider extends StatelessWidget {
-  const _ReminderLeadSlider({
-    required this.value,
-    required this.onChanged,
-    super.key,
-  });
+class _ReminderToggleTile extends StatelessWidget {
+  const _ReminderToggleTile({required this.enabled, required this.onChanged});
 
-  final int value;
-  final ValueChanged<int> onChanged;
+  final bool enabled;
+  final ValueChanged<bool> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Days before deadline reminder',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+    return Material(
+      color: theme.colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: () => onChanged(!enabled),
+        borderRadius: BorderRadius.circular(20),
+        hoverColor: Colors.white.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.12 : 0.28,
+        ),
+        highlightColor: Colors.white.withValues(alpha: 0.16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                enabled
+                    ? Icons.notifications_rounded
+                    : Icons.notifications_off_outlined,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Task reminder',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      enabled
+                          ? 'Send one notification at the selected time.'
+                          : 'No notification will be sent for this task.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch.adaptive(value: enabled, onChanged: onChanged),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            value == 0
-                ? 'Off'
-                : '$value day${value == 1 ? '' : 's'} before deadline',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Slider(
-            value: value.toDouble(),
-            min: 0,
-            max: 30,
-            divisions: 30,
-            label: '$value',
-            onChanged: (newValue) => onChanged(newValue.round()),
-          ),
-        ],
+        ),
       ),
     );
   }

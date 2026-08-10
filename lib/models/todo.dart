@@ -1,4 +1,5 @@
 class Todo {
+  static const int _deadlineLeadMinutesMarker = 100000;
   const Todo({
     required this.id,
     required this.listId,
@@ -30,6 +31,14 @@ class Todo {
   bool get hasTitle => title.trim().isNotEmpty;
   String get presentationTitle => hasTitle ? title.trim() : 'Untitled todo';
 
+  /// Older records stored this value as days. New records use a marked minute
+  /// value so existing deadline reminders keep their original meaning.
+  int get deadlineHeadsUpMinutes => remindDaysBeforeDDL == 0
+      ? 0
+      : remindDaysBeforeDDL >= _deadlineLeadMinutesMarker
+      ? remindDaysBeforeDDL - _deadlineLeadMinutesMarker
+      : remindDaysBeforeDDL * Duration.minutesPerDay;
+
   factory Todo.fromJson(Map<String, dynamic> json) {
     return Todo(
       id: json['id'] as String,
@@ -57,6 +66,7 @@ class Todo {
     DateTime? reminderTime,
     DateTime? deadline,
     int? remindDaysBeforeDDL,
+    int? deadlineHeadsUpMinutes,
     String? notes,
     bool? isMuted,
     bool? isCompleted,
@@ -70,7 +80,11 @@ class Todo {
       content: content ?? this.content,
       reminderTime: reminderTime ?? this.reminderTime,
       deadline: deadline ?? this.deadline,
-      remindDaysBeforeDDL: remindDaysBeforeDDL ?? this.remindDaysBeforeDDL,
+      remindDaysBeforeDDL: deadlineHeadsUpMinutes == null
+          ? remindDaysBeforeDDL ?? this.remindDaysBeforeDDL
+          : deadlineHeadsUpMinutes == 0
+          ? 0
+          : _deadlineLeadMinutesMarker + deadlineHeadsUpMinutes,
       notes: notes ?? this.notes,
       isMuted: isMuted ?? this.isMuted,
       isCompleted: isCompleted ?? this.isCompleted,

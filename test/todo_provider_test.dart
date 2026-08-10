@@ -126,6 +126,31 @@ void main() {
     expect(provider.showingToday, isFalse);
   });
 
+  test('Schedule groups incomplete todos by reminder or deadline day', () {
+    final day = DateTime(2026, 8, 3);
+    final provider = TodoProvider(
+      initialTodos: [
+        buildTodo(id: '1', title: 'Reminder').copyWith(
+          reminderTime: day.add(const Duration(hours: 9)),
+          deadline: day.add(const Duration(days: 2)),
+        ),
+        buildTodo(id: '2', title: 'Deadline').copyWith(
+          reminderTime: day.add(const Duration(days: 2)),
+          deadline: day.add(const Duration(hours: 17)),
+        ),
+        buildTodo(id: '3', title: 'Done').copyWith(
+          reminderTime: day.add(const Duration(hours: 10)),
+          isCompleted: true,
+        ),
+      ],
+    );
+
+    provider.showSchedule();
+
+    expect(provider.showingSchedule, isTrue);
+    expect(provider.todosForDay(day).map((todo) => todo.id), ['1', '2']);
+  });
+
   test('createDraft defaults reminder to one hour and deadline to one day', () {
     final provider = TodoProvider(initialTodos: []);
     final reference = DateTime(2026, 4, 19, 9, 30);
@@ -134,7 +159,20 @@ void main() {
 
     expect(draft.reminderTime, reference.add(const Duration(hours: 1)));
     expect(draft.deadline, reference.add(const Duration(days: 1)));
+    expect(draft.isMuted, isTrue);
+    expect(draft.remindDaysBeforeDDL, 0);
   });
+
+  test(
+    'deadline heads-up supports hours without changing legacy day values',
+    () {
+      final legacy = buildTodo(id: '1', title: 'Legacy');
+      final hourly = legacy.copyWith(deadlineHeadsUpMinutes: 27 * 60);
+
+      expect(legacy.deadlineHeadsUpMinutes, Duration.minutesPerDay);
+      expect(hourly.deadlineHeadsUpMinutes, 27 * 60);
+    },
+  );
 
   test('toggleMute and removeTodo mutate existing items', () {
     final provider = TodoProvider(

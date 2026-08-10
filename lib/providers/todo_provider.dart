@@ -16,6 +16,8 @@ import '../services/todo_reminder_scheduler_factory.dart';
 
 enum TodoBucket { important, pending, completed }
 
+enum TodoView { list, today, schedule }
+
 class TodoProvider extends ChangeNotifier {
   TodoProvider({
     List<Todo>? initialTodos,
@@ -66,14 +68,17 @@ class TodoProvider extends ChangeNotifier {
   final List<Todo> _todos;
   final List<TodoList> _lists;
   String _activeListId;
-  bool _showingToday = false;
+  TodoView _activeView = TodoView.list;
   String _searchQuery = '';
+  bool _dailyAgendaReminderEnabled = false;
 
   // ── List accessors ──
 
   UnmodifiableListView<TodoList> get lists => UnmodifiableListView(_lists);
   String get activeListId => _activeListId;
-  bool get showingToday => _showingToday;
+  bool get showingToday => _activeView == TodoView.today;
+  bool get showingSchedule => _activeView == TodoView.schedule;
+  bool get dailyAgendaReminderEnabled => _dailyAgendaReminderEnabled;
   TodoList? get activeList => _lists.cast<TodoList?>().firstWhere(
     (l) => l?.id == _activeListId,
     orElse: () => null,
@@ -119,6 +124,8 @@ class TodoProvider extends ChangeNotifier {
   Future<void> hydrate({bool seedIfEmpty = true}) async {
     // Load lists first
     final (:lists, :activeListId) = await _listRepository.load();
+    _dailyAgendaReminderEnabled = await _listRepository
+        .loadDailyAgendaReminderEnabled();
     final normalizedLists = lists
         .map(
           (list) => list.id == TodoList.inboxId && list.name == '收件箱'
@@ -178,6 +185,9 @@ class TodoProvider extends ChangeNotifier {
     }
 
     await _reminderScheduler.syncTodos(_todos);
+    await _reminderScheduler.syncDailyAgenda(
+      enabled: _dailyAgendaReminderEnabled,
+    );
   }
 
   /// Starts notification setup after the first app frame.
@@ -194,6 +204,7 @@ class TodoProvider extends ChangeNotifier {
       final previousScheduler = _reminderScheduler;
       _reminderScheduler = scheduler;
       await scheduler.syncTodos(List<Todo>.unmodifiable(_todos));
+      await scheduler.syncDailyAgenda(enabled: _dailyAgendaReminderEnabled);
       await previousScheduler.dispose();
     } on Object catch (error, stackTrace) {
       debugPrint('Failed to initialize todo reminders: $error\n$stackTrace');
@@ -203,19 +214,34 @@ class TodoProvider extends ChangeNotifier {
   // ── List management ──
 
   void setActiveList(String id) {
-    if (_activeListId == id && !_showingToday) return;
+    if (_activeListId == id && _activeView == TodoView.list) return;
     _activeListId = id;
-    _showingToday = false;
+    _activeView = TodoView.list;
     _searchQuery = '';
     notifyListeners();
     unawaited(_listRepository.saveActiveListId(id));
   }
 
   void showToday() {
-    if (_showingToday) return;
-    _showingToday = true;
+    if (showingToday) return;
+    _activeView = TodoView.today;
     _searchQuery = '';
     notifyListeners();
+  }
+
+  void showSchedule() {
+    if (showingSchedule) return;
+    _activeView = TodoView.schedule;
+    _searchQuery = '';
+    notifyListeners();
+  }
+
+  void setDailyAgendaReminderEnabled(bool enabled) {
+    if (_dailyAgendaReminderEnabled == enabled) return;
+    _dailyAgendaReminderEnabled = enabled;
+    notifyListeners();
+    unawaited(_listRepository.saveDailyAgendaReminderEnabled(enabled));
+    unawaited(_syncDailyAgendaReminder());
   }
 
   void saveTodoList(TodoList list) {
@@ -293,9 +319,9 @@ class TodoProvider extends ChangeNotifier {
       content: '',
       reminderTime: now.add(const Duration(hours: 1)),
       deadline: now.add(const Duration(days: 1)),
-      remindDaysBeforeDDL: 1,
+      remindDaysBeforeDDL: 0,
       notes: '',
-      isMuted: false,
+      isMuted: true,
       isCompleted: false,
       isStarred: false,
       sortOrder: _nextSortOrder(TodoBucket.pending),
@@ -495,6 +521,16 @@ class TodoProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> _syncDailyAgendaReminder() async {
+    try {
+      await _reminderScheduler.syncDailyAgenda(
+        enabled: _dailyAgendaReminderEnabled,
+      );
+    } on Object catch (error, stackTrace) {
+      debugPrint('Failed to sync daily agenda reminder: $error\n$stackTrace');
+    }
+  }
+
   String _buildSearchableText(Todo todo) {
     return [
       todo.title,
@@ -586,6 +622,17 @@ class TodoProvider extends ChangeNotifier {
     return List<Todo>.unmodifiable(
       matchingTodos.where(
         (todo) => bucket == null || _bucketFor(todo) == bucket,
+      ),
+    );
+  }
+
+  List<Todo> todosForDay(DateTime day) {
+    return List<Todo>.unmodifiable(
+      _todos.where(
+        (todo) =>
+            !todo.isCompleted &&
+            (_isSameDay(todo.reminderTime, day) ||
+                _isSameDay(todo.deadline, day)),
       ),
     );
   }

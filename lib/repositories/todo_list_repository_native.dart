@@ -63,12 +63,42 @@ class NativeTodoListRepository extends TodoListRepository {
   }
 
   @override
+  Future<bool> loadDailyAgendaReminderEnabled() async {
+    final json = await _loadJson();
+    return json?['dailyAgendaReminderEnabled'] as bool? ?? false;
+  }
+
+  @override
+  Future<void> saveDailyAgendaReminderEnabled(bool enabled) async {
+    final (:lists, :activeListId) = await load();
+    await _write(lists, activeListId, dailyAgendaReminderEnabled: enabled);
+  }
+
+  @override
   Future<void> close() async {}
 
-  Future<void> _write(List<TodoList> lists, String? activeListId) async {
+  Future<Map<String, dynamic>?> _loadJson() async {
+    try {
+      if (!await _file.exists()) return null;
+      return jsonDecode(await _file.readAsString()) as Map<String, dynamic>;
+    } on Object {
+      return null;
+    }
+  }
+
+  Future<void> _write(
+    List<TodoList> lists,
+    String? activeListId, {
+    bool? dailyAgendaReminderEnabled,
+  }) async {
+    final existing = await _loadJson();
     final json = <String, dynamic>{
       'activeListId': activeListId,
       'lists': lists.map((l) => l.toJson()).toList(growable: false),
+      'dailyAgendaReminderEnabled':
+          dailyAgendaReminderEnabled ??
+          existing?['dailyAgendaReminderEnabled'] as bool? ??
+          false,
     };
     await _file.writeAsString(jsonEncode(json));
   }

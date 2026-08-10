@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../layout/app_layout_profile.dart';
 import '../models/todo.dart';
 
 enum _TodoMenuAction { edit, moveToList }
@@ -9,6 +10,7 @@ class TodoTile extends StatelessWidget {
     required this.todo,
     required this.batchMode,
     required this.isSelected,
+    this.isPreviewSelected = false,
     required this.onOpenPreview,
     required this.onOpenEdit,
     required this.onToggleSelected,
@@ -24,6 +26,7 @@ class TodoTile extends StatelessWidget {
   final Todo todo;
   final bool batchMode;
   final bool isSelected;
+  final bool isPreviewSelected;
   final VoidCallback onOpenPreview;
   final VoidCallback onOpenEdit;
   final VoidCallback onToggleSelected;
@@ -139,10 +142,13 @@ class TodoTile extends StatelessWidget {
     );
     final hasTitle = todo.hasTitle;
     final titleText = todo.presentationTitle;
-    final useDesktopInteractions = MediaQuery.sizeOf(context).width >= 700;
+    final useDesktopInteractions = AppLayoutProfile.of(
+      context,
+    ).usesDesktopInteractions;
     final selectionColor = isSelected
         ? theme.colorScheme.primary
         : theme.colorScheme.onSurfaceVariant;
+    final hasActiveSelection = isSelected || isPreviewSelected;
 
     return AnimatedContainer(
       duration: _animationDuration,
@@ -153,11 +159,19 @@ class TodoTile extends StatelessWidget {
                 theme.colorScheme.primary.withValues(alpha: 0.12),
                 theme.colorScheme.surfaceContainerLow,
               )
+            : isPreviewSelected
+            ? Color.alphaBlend(
+                theme.colorScheme.secondary.withValues(alpha: 0.08),
+                theme.colorScheme.surfaceContainerLow,
+              )
             : theme.colorScheme.surfaceContainerLow,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
-          color: isSelected
-              ? theme.colorScheme.primary.withValues(alpha: 0.32)
+          color: hasActiveSelection
+              ? (isSelected
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.secondary)
+                    .withValues(alpha: 0.38)
               : Colors.transparent,
         ),
       ),
@@ -235,12 +249,17 @@ class TodoTile extends StatelessWidget {
                     offset: batchMode ? const Offset(0.02, 0) : Offset.zero,
                     child: Row(
                       children: [
-                        SizedBox(
-                          width: 74,
-                          child: Text(
-                            reminderTime,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                        Flexible(
+                          fit: FlexFit.loose,
+                          child: SizedBox(
+                            width: 74,
+                            child: Text(
+                              reminderTime,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ),
@@ -261,38 +280,37 @@ class TodoTile extends StatelessWidget {
                             ),
                           ),
                         ),
-                        AnimatedSize(
-                          duration: _animationDuration,
-                          curve: Curves.easeOutCubic,
-                          child: batchMode
-                              ? const SizedBox.shrink()
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const SizedBox(width: 10),
-                                    _CircleIconButton(
-                                      tooltip: todo.isStarred
-                                          ? 'Remove star'
-                                          : 'Star todo',
-                                      onPressed: onToggleStarred,
-                                      icon: Icon(
-                                        todo.isStarred
-                                            ? Icons.star_rounded
-                                            : Icons.star_border_rounded,
-                                        size: 18,
-                                        color: todo.isStarred
-                                            ? theme.colorScheme.primary
-                                            : theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                        ),
                       ],
                     ),
                   ),
+                ),
+                AnimatedSize(
+                  duration: _animationDuration,
+                  curve: Curves.easeOutCubic,
+                  child: batchMode
+                      ? const SizedBox.shrink()
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(width: 8),
+                            _CircleIconButton(
+                              tooltip: todo.isStarred
+                                  ? 'Remove star'
+                                  : 'Star todo',
+                              onPressed: onToggleStarred,
+                              icon: Icon(
+                                todo.isStarred
+                                    ? Icons.star_rounded
+                                    : Icons.star_border_rounded,
+                                size: 18,
+                                color: todo.isStarred
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
+                        ),
                 ),
                 AnimatedSize(
                   duration: _animationDuration,

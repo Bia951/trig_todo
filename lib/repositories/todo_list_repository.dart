@@ -5,6 +5,8 @@ abstract class TodoListRepository {
   Future<void> saveList(TodoList list);
   Future<void> deleteList(String id);
   Future<void> saveActiveListId(String id);
+  Future<bool> loadDailyAgendaReminderEnabled();
+  Future<void> saveDailyAgendaReminderEnabled(bool enabled);
   Future<void> close();
 
   Future<void> replaceAll(Iterable<TodoList> lists, String activeListId) async {

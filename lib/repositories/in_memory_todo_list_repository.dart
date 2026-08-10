@@ -4,6 +4,7 @@ import 'todo_list_repository.dart';
 class InMemoryTodoListRepository extends TodoListRepository {
   final List<TodoList> _lists = [];
   String? _activeListId;
+  bool _dailyAgendaReminderEnabled = false;
 
   @override
   Future<({List<TodoList> lists, String? activeListId})> load() async {
@@ -28,6 +29,15 @@ class InMemoryTodoListRepository extends TodoListRepository {
   @override
   Future<void> saveActiveListId(String id) async {
     _activeListId = id;
+  }
+
+  @override
+  Future<bool> loadDailyAgendaReminderEnabled() async =>
+      _dailyAgendaReminderEnabled;
+
+  @override
+  Future<void> saveDailyAgendaReminderEnabled(bool enabled) async {
+    _dailyAgendaReminderEnabled = enabled;
   }
 
   @override
